@@ -14,18 +14,18 @@ import (
 type Metrics map[string]Metric
 
 // Merge merges two sets maps into a fresh set, performing set-union merges as
-// appropriate.
+// appropriate. O(len(m)*len(other))
 func (m Metrics) Merge(other Metrics) Metrics {
 	result := m.Copy()
 	for k, v := range other {
-		result[k] = result[k].Merge(v)
+		result[k] = m[k].Merge(v)
 	}
 	return result
 }
 
 // Copy returns a value copy of the sets map.
 func (m Metrics) Copy() Metrics {
-	result := Metrics{}
+	result := make(Metrics, len(m))
 	for k, v := range m {
 		result[k] = v
 	}
