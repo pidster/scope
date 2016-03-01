@@ -237,27 +237,36 @@ func (r *registry) handleEvent(event *docker_client.APIEvents) {
 	}
 }
 
+func (r *registry) deleteContainer(containerID string) {
+	container, ok := r.containers[containerID]
+	if !ok {
+		return
+	}
+
+	delete(r.containers, containerID)
+	delete(r.containersByPID, container.PID())
+	container.StopGatheringStats()
+}
+
+func (r *registry) notifyWatchers(c *Container) {
+	for _, f := range r.watchers {
+		f(c)
+	}
+}
+
 func (r *registry) updateContainerState(containerID string) {
 	r.Lock()
 	defer r.Unlock()
 
 	dockerContainer, err := r.client.InspectContainer(containerID)
 	if err != nil {
-		// Don't spam the logs if the container was short lived
+		// Don't spam the logs if the container was short lived or removed
 		if _, ok := err.(*docker_client.NoSuchContainer); !ok {
-			log.Errorf("Error processing event for container %s: %v", containerID, err)
-			return
+			log.Warnf("Cannot update container %s: %v", containerID, err)
 		}
 
 		// Container doesn't exist anymore, so lets stop and remove it
-		container, ok := r.containers[containerID]
-		if !ok {
-			return
-		}
-
-		delete(r.containers, containerID)
-		delete(r.containersByPID, container.PID())
-		container.StopGatheringStats()
+		deleteContainer(containerID)
 		return
 	}
 
@@ -278,9 +287,7 @@ func (r *registry) updateContainerState(containerID string) {
 	}
 
 	// Trigger anyone watching for updates
-	for _, f := range r.watchers {
-		f(c)
-	}
+	r.notifyWatchers(c)
 
 	// And finally, ensure we gather stats for it
 	if dockerContainer.State.Running {

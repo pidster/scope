@@ -58,6 +58,7 @@ const (
 	StateRunning = "running"
 	StateStopped = "stopped"
 	StatePaused  = "paused"
+	StateDeleted = "deleted"
 
 	NetworkModeHost = "host"
 
@@ -110,6 +111,11 @@ func NewContainer(c *docker.Container) Container {
 	return &container{
 		container: c,
 	}
+}
+
+// NewContainerTombstone creates a container in deleted state
+func NewContainer() {
+	container := docker.Container{}
 }
 
 func (c *container) UpdateState(container *docker.Container) {
