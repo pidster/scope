@@ -15,7 +15,7 @@ import (
 )
 
 func child(t *testing.T, r render.Renderer, id string) detailed.NodeSummary {
-	s, ok := detailed.MakeNodeSummary(r.Render(fixture.Report)[id])
+	s, ok := detailed.MakeNodeSummary(fixture.Report, r.Render(fixture.Report)[id])
 	if !ok {
 		t.Fatalf("Expected node %s to be summarizable, but wasn't", id)
 	}
@@ -43,18 +43,24 @@ func TestMakeDetailedHostNode(t *testing.T) {
 			Shape:      "circle",
 			Linkable:   true,
 			Adjacency:  report.MakeIDList(fixture.ServerHostNodeID),
-			Metadata: []detailed.MetadataRow{
+			Metadata: []report.MetadataRow{
 				{
-					ID:    "host_name",
-					Value: "client.hostname.com",
+					ID:       "host_name",
+					Label:    "Hostname",
+					Value:    "client.hostname.com",
+					Priority: 11,
 				},
 				{
-					ID:    "os",
-					Value: "Linux",
+					ID:       "os",
+					Label:    "OS",
+					Value:    "Linux",
+					Priority: 12,
 				},
 				{
-					ID:    "local_networks",
-					Value: "10.10.10.0/24",
+					ID:       "local_networks",
+					Label:    "Local Networks",
+					Value:    "10.10.10.0/24",
+					Priority: 13,
 				},
 			},
 			Metrics: []detailed.MetricRow{
@@ -135,7 +141,7 @@ func TestMakeDetailedHostNode(t *testing.T) {
 						Shape:      "circle",
 						Linkable:   true,
 						Adjacency:  report.MakeIDList(render.OutgoingInternetID),
-						Metadata: []detailed.MetadataRow{
+						Metadata: []report.MetadataRow{
 							{
 								ID:       "port",
 								Value:    "80",
@@ -176,12 +182,12 @@ func TestMakeDetailedContainerNode(t *testing.T) {
 			Shape:      "hexagon",
 			Linkable:   true,
 			Pseudo:     false,
-			Metadata: []detailed.MetadataRow{
-				{ID: "docker_container_id", Value: fixture.ServerContainerID, Prime: true},
-				{ID: "docker_container_state", Value: "running", Prime: true},
-				{ID: "docker_image_id", Value: fixture.ServerContainerImageID},
+			Metadata: []report.MetadataRow{
+				{ID: "docker_container_id", Label: "ID", Value: fixture.ServerContainerID, Priority: 1},
+				{ID: "docker_container_state", Label: "State", Value: "running", Priority: 2},
+				{ID: "docker_image_id", Label: "Image ID", Value: fixture.ServerContainerImageID, Priority: 11},
 			},
-			DockerLabels: []detailed.MetadataRow{
+			DockerLabels: []report.MetadataRow{
 				{ID: "label_" + detailed.AmazonECSContainerNameLabel, Value: `server`},
 				{ID: "label_foo1", Value: `bar1`},
 				{ID: "label_foo2", Value: `bar2`},
@@ -237,7 +243,7 @@ func TestMakeDetailedContainerNode(t *testing.T) {
 						Shape:      "hexagon",
 						Linkable:   true,
 						Adjacency:  report.MakeIDList(fixture.ServerContainerNodeID),
-						Metadata: []detailed.MetadataRow{
+						Metadata: []report.MetadataRow{
 							{
 								ID:       "port",
 								Value:    "80",
@@ -259,7 +265,7 @@ func TestMakeDetailedContainerNode(t *testing.T) {
 						Linkable:   true,
 						Pseudo:     true,
 						Adjacency:  report.MakeIDList(fixture.ServerContainerNodeID),
-						Metadata: []detailed.MetadataRow{
+						Metadata: []report.MetadataRow{
 							{
 								ID:       "port",
 								Value:    "80",

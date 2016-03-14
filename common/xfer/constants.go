@@ -1,5 +1,9 @@
 package xfer
 
+import (
+	"github.com/weaveworks/scope/plugins"
+)
+
 const (
 	// AppPort is the default port that the app will use for its HTTP server.
 	// The app publishes the API and user interface, and receives reports from
@@ -13,7 +17,8 @@ const (
 
 // Details are some generic details that can be fetched from /api
 type Details struct {
-	ID       string `json:"id"`
-	Version  string `json:"version"`
-	Hostname string `json:"hostname"`
+	ID       string            `json:"id"`
+	Version  string            `json:"version"`
+	Hostname string            `json:"hostname"`
+	Plugins  plugins.PluginSet `json:"plugins,omitempty"`
 }

@@ -246,6 +246,7 @@ var (
 					Add("host", report.MakeStringSet(ServerHostNodeID)),
 				),
 			},
+			MetadataTemplates: process.MetadataTemplates,
 		},
 		Container: report.Topology{
 			Nodes: report.Nodes{
@@ -287,6 +288,7 @@ var (
 					docker.MemoryUsage:   ServerContainerMemoryMetric,
 				}),
 			},
+			MetadataTemplates: docker.ContainerMetadataTemplates,
 		},
 		ContainerImage: report.Topology{
 			Nodes: report.Nodes{
@@ -307,6 +309,7 @@ var (
 					Add("host", report.MakeStringSet(ServerHostNodeID)),
 				).WithID(ServerContainerImageNodeID).WithTopology(report.ContainerImage),
 			},
+			MetadataTemplates: docker.ContainerImageMetadataTemplates,
 		},
 		Host: report.Topology{
 			Nodes: report.Nodes{
@@ -337,6 +340,7 @@ var (
 					host.Load15:      ServerHostLoad15Metric,
 				}),
 			},
+			MetadataTemplates: host.MetadataTemplates,
 		},
 		Pod: report.Topology{
 			Nodes: report.Nodes{
@@ -361,6 +365,7 @@ var (
 					Add("service", report.MakeStringSet(ServiceID)),
 				),
 			},
+			MetadataTemplates: kubernetes.PodMetadataTemplates,
 		},
 		Service: report.Topology{
 			Nodes: report.Nodes{

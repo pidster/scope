@@ -10,8 +10,9 @@ import (
 // EdgeMetadatas and Nodes respectively. Edges are directional, and embedded
 // in the Node struct.
 type Topology struct {
-	Nodes    `json:"nodes"`
-	Controls `json:"controls,omitempty"`
+	Nodes             `json:"nodes"`
+	Controls          `json:"controls,omitempty"`
+	MetadataTemplates `json:"metadata_templates,omitempty"`
 }
 
 // MakeTopology gives you a Topology.
@@ -19,6 +20,16 @@ func MakeTopology() Topology {
 	return Topology{
 		Nodes:    map[string]Node{},
 		Controls: Controls{},
+	}
+}
+
+// WithMetadataTemplates merges some metadata templates into this topology,
+// returning a new topology.
+func (t Topology) WithMetadataTemplates(other MetadataTemplates) Topology {
+	return Topology{
+		Nodes:             t.Nodes.Copy(),
+		Controls:          t.Controls.Copy(),
+		MetadataTemplates: t.MetadataTemplates.Merge(other),
 	}
 }
 
@@ -38,8 +49,9 @@ func (t Topology) AddNode(nodeID string, node Node) Topology {
 // Copy returns a value copy of the Topology.
 func (t Topology) Copy() Topology {
 	return Topology{
-		Nodes:    t.Nodes.Copy(),
-		Controls: t.Controls.Copy(),
+		Nodes:             t.Nodes.Copy(),
+		Controls:          t.Controls.Copy(),
+		MetadataTemplates: t.MetadataTemplates.Copy(),
 	}
 }
 
@@ -47,8 +59,9 @@ func (t Topology) Copy() Topology {
 // The original is not modified.
 func (t Topology) Merge(other Topology) Topology {
 	return Topology{
-		Nodes:    t.Nodes.Merge(other.Nodes),
-		Controls: t.Controls.Merge(other.Controls),
+		Nodes:             t.Nodes.Merge(other.Nodes),
+		Controls:          t.Controls.Merge(other.Controls),
+		MetadataTemplates: t.MetadataTemplates.Merge(other.MetadataTemplates),
 	}
 }
 

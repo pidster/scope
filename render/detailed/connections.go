@@ -35,7 +35,7 @@ type connectionsRow struct {
 	port                  string // always the server-side port
 }
 
-func incomingConnectionsTable(topologyID string, n report.Node, ns report.Nodes) NodeSummaryGroup {
+func incomingConnectionsTable(topologyID string, r report.Report, n report.Node, ns report.Nodes) NodeSummaryGroup {
 	localEndpointIDs := endpointChildIDsOf(n)
 
 	// For each node which has an edge TO me
@@ -80,11 +80,11 @@ func incomingConnectionsTable(topologyID string, n report.Node, ns report.Nodes)
 		TopologyID: topologyID,
 		Label:      "Inbound",
 		Columns:    columnHeaders,
-		Nodes:      connectionRows(counts, isInternetNode(n)),
+		Nodes:      connectionRows(r, counts, isInternetNode(n)),
 	}
 }
 
-func outgoingConnectionsTable(topologyID string, n report.Node, ns report.Nodes) NodeSummaryGroup {
+func outgoingConnectionsTable(topologyID string, r report.Report, n report.Node, ns report.Nodes) NodeSummaryGroup {
 	localEndpoints := endpointChildrenOf(n)
 
 	// For each node which has an edge FROM me
@@ -130,7 +130,7 @@ func outgoingConnectionsTable(topologyID string, n report.Node, ns report.Nodes)
 		TopologyID: topologyID,
 		Label:      "Outbound",
 		Columns:    columnHeaders,
-		Nodes:      connectionRows(counts, isInternetNode(n)),
+		Nodes:      connectionRows(r, counts, isInternetNode(n)),
 	}
 }
 
@@ -158,13 +158,13 @@ func isInternetNode(n report.Node) bool {
 	return n.ID == render.IncomingInternetID || n.ID == render.OutgoingInternetID
 }
 
-func connectionRows(in map[connectionsRow]int, includeLocal bool) []NodeSummary {
+func connectionRows(r report.Report, in map[connectionsRow]int, includeLocal bool) []NodeSummary {
 	nodes := []NodeSummary{}
 	for row, count := range in {
 		// Use MakeNodeSummary to render the id and label of this node
 		// TODO(paulbellamy): Would be cleaner if we hade just a
 		// MakeNodeID(*row.remoteode). As we don't need the whole summary.
-		summary, ok := MakeNodeSummary(*row.remoteNode)
+		summary, ok := MakeNodeSummary(r, *row.remoteNode)
 		summary.Metadata, summary.Metrics, summary.DockerLabels = nil, nil, nil
 		if !ok && row.remoteAddr != "" {
 			summary = NodeSummary{
@@ -175,19 +175,19 @@ func connectionRows(in map[connectionsRow]int, includeLocal bool) []NodeSummary 
 		}
 		if includeLocal {
 			summary.Metadata = append(summary.Metadata,
-				MetadataRow{
+				report.MetadataRow{
 					ID:       "foo",
 					Value:    row.localAddr,
 					Datatype: number,
 				})
 		}
 		summary.Metadata = append(summary.Metadata,
-			MetadataRow{
+			report.MetadataRow{
 				ID:       portKey,
 				Value:    row.port,
 				Datatype: number,
 			},
-			MetadataRow{
+			report.MetadataRow{
 				ID:       countKey,
 				Value:    strconv.Itoa(count),
 				Datatype: number,

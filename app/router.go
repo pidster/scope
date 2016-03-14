@@ -90,7 +90,7 @@ func gzipHandler(h http.HandlerFunc) http.HandlerFunc {
 // routes should be added to a router and passed to postRoutes.
 func TopologyHandler(c Reporter, preRoutes *mux.Router, postRoutes http.Handler) http.Handler {
 	get := preRoutes.Methods("GET").Subrouter()
-	get.HandleFunc("/api", gzipHandler(requestContextDecorator(apiHandler)))
+	get.HandleFunc("/api", gzipHandler(requestContextDecorator(apiHandler(c))))
 	get.HandleFunc("/api/topology", gzipHandler(requestContextDecorator(topologyRegistry.makeTopologyList(c))))
 	get.HandleFunc("/api/topology/{topology}",
 		gzipHandler(requestContextDecorator(topologyRegistry.captureRenderer(c, handleTopology))))
@@ -161,10 +161,17 @@ func RegisterReportPostHandler(a Adder, router *mux.Router) {
 	}))
 }
 
-func apiHandler(_ context.Context, w http.ResponseWriter, r *http.Request) {
-	respondWith(w, http.StatusOK, xfer.Details{
-		ID:       UniqueID,
-		Version:  Version,
-		Hostname: hostname.Get(),
-	})
+func apiHandler(rep Reporter) CtxHandlerFunc {
+	return func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
+		report, err := rep.Report(ctx)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		respondWith(w, http.StatusOK, xfer.Details{
+			ID:       UniqueID,
+			Version:  Version,
+			Hostname: hostname.Get(),
+			Plugins:  report.Plugins,
+		})
+	}
 }

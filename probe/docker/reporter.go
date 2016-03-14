@@ -17,6 +17,26 @@ const (
 	ImageName = "docker_image_name"
 )
 
+// Exposed for testing
+var (
+	ContainerMetadataTemplates = report.MetadataTemplates{
+		ContainerID:           {ID: ContainerID, Label: "ID", From: report.FromLatest, Truncate: 12, Priority: 1},
+		ContainerState:        {ID: ContainerState, Label: "State", From: report.FromLatest, Priority: 2},
+		ContainerCommand:      {ID: ContainerCommand, Label: "Command", From: report.FromLatest, Priority: 3},
+		ImageID:               {ID: ImageID, Label: "Image ID", From: report.FromLatest, Truncate: 12, Priority: 11},
+		ContainerUptime:       {ID: ContainerUptime, Label: "Uptime", From: report.FromLatest, Priority: 12},
+		ContainerRestartCount: {ID: ContainerRestartCount, Label: "Restart #", From: report.FromLatest, Priority: 13},
+		ContainerIPs:          {ID: ContainerIPs, Label: "IPs", From: report.FromSets, Priority: 14},
+		ContainerPorts:        {ID: ContainerPorts, Label: "Ports", From: report.FromSets, Priority: 15},
+		ContainerCreated:      {ID: ContainerCreated, Label: "Created", From: report.FromLatest, Priority: 16},
+	}
+
+	ContainerImageMetadataTemplates = report.MetadataTemplates{
+		ImageID:          {ID: ImageID, Label: "Image ID", From: report.FromLatest, Truncate: 12, Priority: 1},
+		report.Container: {ID: report.Container, Label: "# Containers", From: report.FromCounters, Datatype: "number", Priority: 2},
+	}
+)
+
 // Reporter generate Reports containing Container and ContainerImage topologies
 type Reporter struct {
 	registry Registry
@@ -69,7 +89,7 @@ func (r *Reporter) Report() (report.Report, error) {
 }
 
 func (r *Reporter) containerTopology(localAddrs []net.IP) report.Topology {
-	result := report.MakeTopology()
+	result := report.MakeTopology().WithMetadataTemplates(ContainerMetadataTemplates)
 	result.Controls.AddControl(report.Control{
 		ID:    StopContainer,
 		Human: "Stop",
@@ -117,7 +137,7 @@ func (r *Reporter) containerTopology(localAddrs []net.IP) report.Topology {
 }
 
 func (r *Reporter) containerImageTopology() report.Topology {
-	result := report.MakeTopology()
+	result := report.MakeTopology().WithMetadataTemplates(ContainerImageMetadataTemplates)
 
 	r.registry.WalkImages(func(image *docker_client.APIImages) {
 		imageID := trimImageID(image.ID)

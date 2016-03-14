@@ -7,6 +7,7 @@ import Sidebar from './sidebar.js';
 import Status from './status.js';
 import Topologies from './topologies.js';
 import TopologyOptions from './topology-options.js';
+import Plugins from './plugins.js';
 import { getApiDetails, getTopologies } from '../utils/web-api-utils';
 import { hitEsc } from '../actions/app-actions';
 import Details from './details';
@@ -38,6 +39,7 @@ function getStateFromStores() {
     updatePaused: AppStore.isUpdatePaused(),
     updatePausedAt: AppStore.getUpdatePausedAt(),
     version: AppStore.getVersion(),
+    plugins: AppStore.getPlugins(),
     websocketClosed: AppStore.isWebsocketClosed()
   };
 }
@@ -117,6 +119,7 @@ export default class App extends React.Component {
           <TopologyOptions options={this.state.currentTopologyOptions}
             topologyId={this.state.currentTopologyId}
             activeOptions={this.state.activeTopologyOptions} />
+          <Plugins plugins={this.state.plugins} />
         </Sidebar>
 
         <Footer {...this.state} />

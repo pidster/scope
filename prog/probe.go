@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"math/rand"
@@ -14,6 +16,7 @@ import (
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/armon/go-metrics"
+	"github.com/ugorji/go/codec"
 	"github.com/weaveworks/go-checkpoint"
 	"github.com/weaveworks/weave/common"
 
@@ -22,6 +25,7 @@ import (
 	"github.com/weaveworks/scope/common/sanitize"
 	"github.com/weaveworks/scope/common/weave"
 	"github.com/weaveworks/scope/common/xfer"
+	"github.com/weaveworks/scope/plugins"
 	"github.com/weaveworks/scope/probe"
 	"github.com/weaveworks/scope/probe/appclient"
 	"github.com/weaveworks/scope/probe/controls"
@@ -38,6 +42,8 @@ import (
 const (
 	versionCheckPeriod = 6 * time.Hour
 )
+
+var pluginAPIVersion = "1"
 
 func check() {
 	handleResponse := func(r *checkpoint.CheckResponse, err error) {
@@ -69,6 +75,7 @@ func probeMain() {
 		spyInterval     = flag.Duration("spy.interval", time.Second, "spy (scan) interval")
 		spyProcs        = flag.Bool("processes", true, "report processes (needs root)")
 		procRoot        = flag.String("proc.root", "/proc", "location of the proc filesystem")
+		pluginsRoot     = flag.String("plugins.root", "/var/run/scope/plugins", "Root directory to search for plugins")
 		useConntrack    = flag.Bool("conntrack", true, "also use conntrack to track connections")
 		insecure        = flag.Bool("insecure", false, "(SSL) explicitly allow \"insecure\" SSL connections and transfers")
 		logPrefix       = flag.String("log.prefix", "<probe>", "prefix for each log line")
@@ -110,6 +117,19 @@ func probeMain() {
 	)
 	log.Infof("probe starting, version %s, ID %s", version, probeID)
 	go check()
+
+	pluginRegistry, err := plugins.NewRegistry(
+		*pluginsRoot,
+		pluginAPIVersion,
+		map[string]string{
+			"probe_id":    probeID,
+			"api_version": pluginAPIVersion,
+		},
+	)
+	if err != nil {
+		log.Errorf("plugins: problem loading: %v", err)
+	}
+	defer pluginRegistry.Close()
 
 	if len(flag.Args()) > 0 {
 		targets = flag.Args()
@@ -187,6 +207,8 @@ func probeMain() {
 		}
 	}
 
+	p.AddReporter(pluginsReporter(pluginRegistry))
+
 	if *httpListen != "" {
 		go func() {
 			log.Infof("Profiling data being exported to %s", *httpListen)
@@ -199,4 +221,25 @@ func probeMain() {
 	defer p.Stop()
 
 	common.SignalHandlerLoop()
+}
+
+// TODO(paulbellamy): where should this live?
+func pluginsReporter(pluginRegistry *plugins.Registry) probe.Reporter {
+	return probe.ReporterFunc("plugins", func() (report.Report, error) {
+		rpt := report.MakeReport()
+		pluginRegistry.Implementors("reporter", func(plugin *plugins.Plugin) {
+			var pluginReportJSON json.RawMessage
+			if err := plugin.Call("Report", nil, &pluginReportJSON); err != nil {
+				log.Errorf("plugins: error getting report from %s: %v", plugin.ID, err)
+			}
+
+			pluginReport := report.MakeReport()
+			pluginReport.Plugins = pluginReport.Plugins.Add(plugin)
+			if err := codec.NewDecoder(bytes.NewReader(pluginReportJSON), &codec.JsonHandle{}).Decode(&pluginReport); err != nil {
+				log.Errorf("plugins: error decoding report from %s: %v", plugin.ID, err)
+			}
+			rpt = rpt.Merge(pluginReport)
+		})
+		return rpt, nil
+	})
 }
