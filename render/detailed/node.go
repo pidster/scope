@@ -114,7 +114,6 @@ func controlsFor(topology report.Topology, nodeID string) []ControlInstance {
 }
 
 func controls(r report.Report, n report.Node) []ControlInstance {
-	// TODO(paulbellamy): this ID will have been munged in rendering, so we should stop doing that, so that this matches up.
 	if t, ok := r.Topology(n.Topology); ok {
 		return controlsFor(t, n.ID)
 	}
