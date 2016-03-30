@@ -2,13 +2,13 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
 	"log"
 	"net"
-	"net/rpc"
-	"net/rpc/jsonrpc"
+	"net/http"
 	"os"
 	"os/exec"
 	"strconv"
@@ -37,12 +37,12 @@ func main() {
 	log.Println("Found sysdig...")
 
 	os.Remove(*addr)
-	l, err := net.Listen("unix", *addr)
+	listener, err := net.Listen("unix", *addr)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer func() {
-		l.Close()
+		listener.Close()
 		os.Remove(*addr)
 	}()
 
@@ -53,14 +53,11 @@ func main() {
 		log.Println(err)
 		return
 	}
-	rpc.Register(&Plugin{httpLog: httpLog, HostID: *hostID})
-	for {
-		conn, err := l.Accept()
-		if err != nil {
-			log.Printf("error: %v", err)
-			break
-		}
-		go rpc.ServeCodec(jsonrpc.NewServerCodec(conn))
+	plugin := &Plugin{httpLog: httpLog, HostID: *hostID}
+	http.HandleFunc("/", plugin.Handshake)
+	http.HandleFunc("/report", plugin.Report)
+	if err := http.Serve(listener, nil); err != nil {
+		log.Printf("error: %v", err)
 	}
 }
 
@@ -69,18 +66,20 @@ type Plugin struct {
 	HostID  string
 }
 
-func (p *Plugin) Handshake(args map[string]string, resp *map[string]interface{}) error {
-	log.Printf("Probe %s handshake", args["probe_id"])
-	(*resp) = map[string]interface{}{
+func (p *Plugin) Handshake(w http.ResponseWriter, r *http.Request) {
+	log.Printf("Probe %s handshake", r.FormValue("probe_id"))
+	err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"name":        "sysdig",
 		"description": "Displays HTTP request rates by process based on sysdig data",
 		"interfaces":  []string{"reporter"},
 		"api_version": "1",
+	})
+	if err != nil {
+		log.Printf("error: %v", err)
 	}
-	return nil
 }
 
-func (p *Plugin) Report(args map[string]string, resp *map[string]interface{}) error {
+func (p *Plugin) Report(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	nowISO := now.Format(time.RFC3339)
 	nodes := map[string]interface{}{}
@@ -107,7 +106,7 @@ func (p *Plugin) Report(args map[string]string, resp *map[string]interface{}) er
 			},
 		}
 	})
-	(*resp) = map[string]interface{}{
+	err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"Process": map[string]interface{}{
 			"nodes": nodes,
 			"metadata_templates": map[string]interface{}{
@@ -125,8 +124,10 @@ func (p *Plugin) Report(args map[string]string, resp *map[string]interface{}) er
 				},
 			},
 		},
+	})
+	if err != nil {
+		log.Printf("error: %v", err)
 	}
-	return nil
 }
 
 type latest struct {

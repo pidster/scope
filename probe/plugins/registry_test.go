@@ -1,12 +1,13 @@
 package plugins
 
 import (
-	"bytes"
+	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
+	"net/http"
+	"net/http/httptest"
+	"net/http/httputil"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -20,20 +21,41 @@ import (
 	"github.com/weaveworks/scope/test/fswatch"
 )
 
-func stubDialer(fn func(network, address string, timeout time.Duration) (net.Conn, error)) {
-	dialer = fn
+func stubTransport(fn func(socket string, timeout time.Duration) (http.RoundTripper, error)) {
+	transport = fn
 }
-func restoreDialer() { dialer = net.DialTimeout }
+func restoreTransport() { transport = makeUnixRoundTripper }
 
-type NopWriteCloser struct{ io.Writer }
+type readWriteCloseRoundTripper struct {
+	io.ReadWriteCloser
+}
 
-func (n NopWriteCloser) Close() error { return nil }
+func (rwc readWriteCloseRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	conn := &closeableConn{
+		Conn:   &ionet.Conn{R: rwc, W: rwc},
+		Closer: rwc,
+	}
+	client := httputil.NewClientConn(conn, nil)
+	defer client.Close()
+	return client.Do(req)
+}
+
+// closeableConn gives us an overrideable Close, where ionet.Conn does not.
+type closeableConn struct {
+	net.Conn
+	io.Closer
+}
+
+func (c *closeableConn) Close() error {
+	c.Conn.Close()
+	return c.Closer.Close()
+}
 
 type mockPlugin struct {
-	Name   string
-	R      io.Reader
-	W      io.Writer
-	Closer io.Closer
+	t        *testing.T
+	Name     string
+	Handler  http.Handler
+	Requests chan *http.Request
 }
 
 func (p mockPlugin) dir() string {
@@ -49,11 +71,25 @@ func (p mockPlugin) base() string {
 }
 
 func (p mockPlugin) file() fs.File {
+	incomingR, incomingW := io.Pipe()
+	outgoingR, outgoingW := io.Pipe()
+	go func() {
+		conn := httputil.NewServerConn(&ionet.Conn{R: incomingR, W: outgoingW}, nil)
+		req, err := conn.Read()
+		if err != nil {
+			p.t.Fatal(err)
+		}
+		resp := httptest.NewRecorder()
+		p.Handler.ServeHTTP(resp, req)
+		fmt.Fprintf(outgoingW, "HTTP/1.1 200 OK\nContent-Length: %d\n\n%s", resp.Body.Len(), resp.Body.String())
+		if p.Requests != nil {
+			p.Requests <- req
+		}
+	}()
 	return fs.File{
 		FName:   p.base(),
-		FReader: p.R,
-		FWriter: p.W,
-		FCloser: p.Closer,
+		FWriter: incomingW,
+		FReader: outgoingR,
 		FStat:   syscall.Stat_t{Mode: syscall.S_IFSOCK},
 	}
 }
@@ -81,12 +117,9 @@ func setup(t *testing.T, mockPlugins ...mockPlugin) (fs.Entry, *fswatch.MockWatc
 	fs_hook.Mock(
 		mockFS)
 
-	stubDialer(func(network, address string, timeout time.Duration) (net.Conn, error) {
-		if network != "unix" {
-			t.Fatalf("Expected dial to unix socket, got: %q", network)
-		}
-		f, err := mockFS.Open(address)
-		return &closeableConn{&ionet.Conn{R: f, W: f}, f}, err
+	stubTransport(func(socket string, timeout time.Duration) (http.RoundTripper, error) {
+		f, err := mockFS.Open(socket)
+		return readWriteCloseRoundTripper{f}, err
 	})
 
 	mockWatcher := fswatch.NewMockWatcher()
@@ -94,21 +127,10 @@ func setup(t *testing.T, mockPlugins ...mockPlugin) (fs.Entry, *fswatch.MockWatc
 	return mockFS, mockWatcher
 }
 
-// closeableConn gives us an overrideable Close, where ionet.Conn does not.
-type closeableConn struct {
-	net.Conn
-	io.Closer
-}
-
-func (c *closeableConn) Close() error {
-	c.Conn.Close()
-	return c.Closer.Close()
-}
-
 func restore(t *testing.T) {
 	fs_hook.Restore()
 	fswatch_hook.Restore()
-	restoreDialer()
+	restoreTransport()
 }
 
 type iterator func(func(*Plugin))
@@ -130,9 +152,15 @@ func checkLoadedPlugins(t *testing.T, forEach iterator, expectedIDs []string) {
 	}
 }
 
+// stringHandler returns an http.Handler which just prints the given string
+func stringHandler(j string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, j)
+	})
+}
+
 func TestRegistryLoadsExistingPlugins(t *testing.T) {
-	rBuf := bytes.NewBufferString(`{"id":0,"result":{"name":"testPlugin","interfaces":["reporter"],"api_version":"1"}}`)
-	setup(t, mockPlugin{Name: "testPlugin", R: rBuf, W: ioutil.Discard})
+	setup(t, mockPlugin{t: t, Name: "testPlugin", Handler: stringHandler(`{"name":"testPlugin","interfaces":["reporter"],"api_version":"1"}`)})
 	defer restore(t)
 
 	root := "/plugins"
@@ -159,13 +187,11 @@ func TestRegistryDiscoversNewPlugins(t *testing.T) {
 	checkLoadedPlugins(t, r.ForEach, []string{})
 
 	// Add the new plugin
-	rBuf := bytes.NewBufferString(`{"id":0,"result":{"name":"testPlugin","interfaces":["reporter"]}}`)
-	w := chanWriter(make(chan []byte))
-	plugin := mockPlugin{Name: "testPlugin", R: rBuf, W: w}
+	plugin := mockPlugin{t: t, Name: "testPlugin", Requests: make(chan *http.Request), Handler: stringHandler(`{"name":"testPlugin","interfaces":["reporter"]}`)}
 	mockFS.Add(plugin.dir(), plugin.file())
 	mockWatcher.Events() <- fsnotify.Event{Name: plugin.path(), Op: fsnotify.Create}
 	select {
-	case <-w:
+	case <-plugin.Requests:
 		// registry connected to this plugin
 	case <-time.After(100 * time.Millisecond):
 		// timeout
@@ -180,8 +206,7 @@ func TestRegistryDiscoversNewPlugins(t *testing.T) {
 }
 
 func TestRegistryRemovesPlugins(t *testing.T) {
-	rBuf := bytes.NewBufferString(`{"id":0,"result":{"name":"testPlugin","interfaces":["reporter"]}}`)
-	plugin := mockPlugin{Name: "testPlugin", R: rBuf, Closer: chanWriter(make(chan []byte))}
+	plugin := mockPlugin{t: t, Name: "testPlugin", Requests: make(chan *http.Request), Handler: stringHandler(`{"name":"testPlugin","interfaces":["reporter"]}`)}
 	_, mockWatcher := setup(t, plugin)
 	defer restore(t)
 
@@ -197,40 +222,7 @@ func TestRegistryRemovesPlugins(t *testing.T) {
 	// Remove the plugin
 	mockWatcher.Events() <- fsnotify.Event{Name: plugin.path(), Op: fsnotify.Remove}
 	select {
-	case <-plugin.Closer.(chanWriter):
-		// registry closed connection to this plugin
-	case <-time.After(100 * time.Millisecond):
-		// timeout
-		t.Errorf("timeout waiting for registry to remove plugin")
-	}
-
-	checkLoadedPlugins(t, r.ForEach, []string{})
-
-	if _, ok := mockWatcher.Watched()[plugin.path()]; ok {
-		t.Errorf("Expected registry not to be watching %s, but was", plugin.path())
-	}
-}
-
-func TestRegistryRemovesPluginsWhenTheyClose(t *testing.T) {
-	// the reader here will EOF after this message, which should count as the
-	// connection closing.
-	rBuf := strings.NewReader(`{"id":0,"result":{"name":"testPlugin","interfaces":["reporter"]}}`)
-	plugin := mockPlugin{Name: "testPlugin", R: rBuf, Closer: chanWriter(make(chan []byte))}
-	_, mockWatcher := setup(t, plugin)
-	defer restore(t)
-
-	root := "/plugins"
-	r, err := NewRegistry(root, "", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer r.Close()
-
-	checkLoadedPlugins(t, r.ForEach, []string{"testPlugin"})
-
-	// Remove the plugin
-	select {
-	case <-plugin.Closer.(chanWriter):
+	case <-plugin.Requests:
 		// registry closed connection to this plugin
 	case <-time.After(100 * time.Millisecond):
 		// timeout
@@ -248,14 +240,14 @@ func TestRegistryReturnsPluginsByInterface(t *testing.T) {
 	setup(
 		t,
 		mockPlugin{
-			Name: "plugin1",
-			R:    bytes.NewBufferString(`{"id":0,"result":{"name":"plugin1","interfaces":["reporter"]}}`),
-			W:    ioutil.Discard,
+			t:       t,
+			Name:    "plugin1",
+			Handler: stringHandler(`{"name":"plugin1","interfaces":["reporter"]}`),
 		},
 		mockPlugin{
-			Name: "plugin2",
-			R:    bytes.NewBufferString(`{"id":0,"result":{"name":"plugin2","interfaces":["other"]}}`),
-			W:    ioutil.Discard,
+			t:       t,
+			Name:    "plugin2",
+			Handler: stringHandler(`{"name":"plugin2","interfaces":["other"]}`),
 		},
 	)
 	defer restore(t)
@@ -276,14 +268,14 @@ func TestRegistryHandlesConflictingPlugins(t *testing.T) {
 	setup(
 		t,
 		mockPlugin{
-			Name: "plugin1",
-			R:    bytes.NewBufferString(`{"id":0,"result":{"name":"plugin1","interfaces":["reporter"]}}`),
-			W:    ioutil.Discard,
+			t:       t,
+			Name:    "plugin1",
+			Handler: stringHandler(`{"name":"plugin1","interfaces":["reporter"]}`),
 		},
 		mockPlugin{
-			Name: "plugin1",
-			R:    bytes.NewBufferString(`{"id":0,"result":{"name":"plugin2","interfaces":["other"]}}`),
-			W:    ioutil.Discard,
+			t:       t,
+			Name:    "plugin1",
+			Handler: stringHandler(`{"name":"plugin2","interfaces":["other"]}`),
 		},
 	)
 	defer restore(t)
