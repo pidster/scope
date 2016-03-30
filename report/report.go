@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/weaveworks/scope/plugins"
+	"github.com/weaveworks/scope/common/xfer"
 )
 
 // Names of the various topologies.
@@ -81,7 +81,7 @@ type Report struct {
 	// bypassing the usual spy interval, publish interval and app ws interval.
 	Shortcut bool
 
-	Plugins plugins.PluginSet
+	Plugins xfer.PluginSpecs
 
 	// ID a random identifier for this report, used when caching
 	// rendered views of the report.  Reports with the same id
@@ -103,7 +103,7 @@ func MakeReport() Report {
 		Overlay:        MakeTopology(),
 		Sampling:       Sampling{},
 		Window:         0,
-		Plugins:        plugins.MakePluginSet(),
+		Plugins:        xfer.MakePluginSpecs(),
 		ID:             fmt.Sprintf("%d", rand.Int63()),
 	}
 }

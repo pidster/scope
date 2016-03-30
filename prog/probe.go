@@ -25,7 +25,6 @@ import (
 	"github.com/weaveworks/scope/common/sanitize"
 	"github.com/weaveworks/scope/common/weave"
 	"github.com/weaveworks/scope/common/xfer"
-	"github.com/weaveworks/scope/plugins"
 	"github.com/weaveworks/scope/probe"
 	"github.com/weaveworks/scope/probe/appclient"
 	"github.com/weaveworks/scope/probe/controls"
@@ -35,6 +34,7 @@ import (
 	"github.com/weaveworks/scope/probe/host"
 	"github.com/weaveworks/scope/probe/kubernetes"
 	"github.com/weaveworks/scope/probe/overlay"
+	"github.com/weaveworks/scope/probe/plugins"
 	"github.com/weaveworks/scope/probe/process"
 	"github.com/weaveworks/scope/report"
 )
@@ -234,7 +234,7 @@ func pluginsReporter(pluginRegistry *plugins.Registry) probe.Reporter {
 			}
 
 			pluginReport := report.MakeReport()
-			pluginReport.Plugins = pluginReport.Plugins.Add(plugin)
+			pluginReport.Plugins = pluginReport.Plugins.Add(plugin.PluginSpec)
 			if err := codec.NewDecoder(bytes.NewReader(pluginReportJSON), &codec.JsonHandle{}).Decode(&pluginReport); err != nil {
 				log.Errorf("plugins: error decoding report from %s: %v", plugin.ID, err)
 			}

@@ -1,4 +1,4 @@
-package plugins
+package xfer
 
 import (
 	"bytes"
@@ -13,35 +13,42 @@ import (
 	"github.com/weaveworks/scope/test/reflect"
 )
 
-// PluginSet is a set of plugins keyed on ID. Clients must use
-// the Add method to add plugins
-type PluginSet struct {
+type PluginSpec struct {
+	ID          string   `json:"id"`
+	Label       string   `json:"label"`
+	Description string   `json:"description,omitempty"`
+	Interfaces  []string `json:"interfaces"`
+}
+
+// PluginSpecs is a set of plugin specs keyed on ID. Clients must use
+// the Add method to add plugin specs
+type PluginSpecs struct {
 	psMap ps.Map
 }
 
-// EmptyPluginSet is the empty set of plugins.
-var EmptyPluginSet = PluginSet{ps.NewMap()}
+// EmptyPluginSpecs is the empty set of plugin specs.
+var EmptyPluginSpecs = PluginSpecs{ps.NewMap()}
 
-// MakePluginSet makes a new PluginSet with the given plugins.
-func MakePluginSet(plugins ...*Plugin) PluginSet {
-	return EmptyPluginSet.Add(plugins...)
+// MakePluginSpecs makes a new PluginSpecs with the given plugin specs.
+func MakePluginSpecs(specs ...PluginSpec) PluginSpecs {
+	return EmptyPluginSpecs.Add(specs...)
 }
 
-// Add adds the plugins to the PluginSet. Add is the only valid way to grow a
-// PluginSet. Add returns the PluginSet to enable chaining.
-func (n PluginSet) Add(plugins ...*Plugin) PluginSet {
+// Add adds the specs to the PluginSpecs. Add is the only valid way to grow a
+// PluginSpecs. Add returns the PluginSpecs to enable chaining.
+func (n PluginSpecs) Add(specs ...PluginSpec) PluginSpecs {
 	result := n.psMap
 	if result == nil {
 		result = ps.NewMap()
 	}
-	for _, plugin := range plugins {
-		result = result.Set(plugin.ID, plugin)
+	for _, spec := range specs {
+		result = result.Set(spec.ID, spec)
 	}
-	return PluginSet{result}
+	return PluginSpecs{result}
 }
 
-// Merge combines the two PluginSets and returns a new result.
-func (n PluginSet) Merge(other PluginSet) PluginSet {
+// Merge combines the two PluginSpecss and returns a new result.
+func (n PluginSpecs) Merge(other PluginSpecs) PluginSpecs {
 	nSize, otherSize := n.Size(), other.Size()
 	if nSize == 0 {
 		return other
@@ -56,22 +63,22 @@ func (n PluginSet) Merge(other PluginSet) PluginSet {
 	iter.ForEach(func(key string, otherVal interface{}) {
 		result = result.Set(key, otherVal)
 	})
-	return PluginSet{result}
+	return PluginSpecs{result}
 }
 
-// Lookup the plugin 'key'
-func (n PluginSet) Lookup(key string) (*Plugin, bool) {
+// Lookup the spec by 'key'
+func (n PluginSpecs) Lookup(key string) (PluginSpec, bool) {
 	if n.psMap != nil {
 		value, ok := n.psMap.Lookup(key)
 		if ok {
-			return value.(*Plugin), true
+			return value.(PluginSpec), true
 		}
 	}
-	return nil, false
+	return PluginSpec{}, false
 }
 
 // Keys is a list of all the keys in this set.
-func (n PluginSet) Keys() []string {
+func (n PluginSpecs) Keys() []string {
 	if n.psMap == nil {
 		return nil
 	}
@@ -80,33 +87,33 @@ func (n PluginSet) Keys() []string {
 	return k
 }
 
-// Size is the number of plugins in the set
-func (n PluginSet) Size() int {
+// Size is the number of specs in the set
+func (n PluginSpecs) Size() int {
 	if n.psMap == nil {
 		return 0
 	}
 	return n.psMap.Size()
 }
 
-// ForEach executes f for each plugin in the set. Nodes are traversed in sorted
+// ForEach executes f for each spec in the set. Nodes are traversed in sorted
 // order.
-func (n PluginSet) ForEach(f func(*Plugin)) {
+func (n PluginSpecs) ForEach(f func(PluginSpec)) {
 	for _, key := range n.Keys() {
 		if val, ok := n.psMap.Lookup(key); ok {
-			f(val.(*Plugin))
+			f(val.(PluginSpec))
 		}
 	}
 }
 
 // Copy is a noop
-func (n PluginSet) Copy() PluginSet {
+func (n PluginSpecs) Copy() PluginSpecs {
 	return n
 }
 
-func (n PluginSet) String() string {
+func (n PluginSpecs) String() string {
 	keys := []string{}
 	if n.psMap == nil {
-		n = EmptyPluginSet
+		n = EmptyPluginSpecs
 	}
 	psMap := n.psMap
 	if psMap == nil {
@@ -126,9 +133,9 @@ func (n PluginSet) String() string {
 	return buf.String()
 }
 
-// DeepEqual tests equality with other PluginSets
-func (n PluginSet) DeepEqual(i interface{}) bool {
-	d, ok := i.(PluginSet)
+// DeepEqual tests equality with other PluginSpecss
+func (n PluginSpecs) DeepEqual(i interface{}) bool {
+	d, ok := i.(PluginSpecs)
 	if !ok {
 		return false
 	}
@@ -151,20 +158,20 @@ func (n PluginSet) DeepEqual(i interface{}) bool {
 	return equal
 }
 
-func (n PluginSet) toIntermediate() []*Plugin {
-	intermediate := make([]*Plugin, 0, n.Size())
-	n.ForEach(func(plugin *Plugin) {
-		intermediate = append(intermediate, plugin)
+func (n PluginSpecs) toIntermediate() []PluginSpec {
+	intermediate := make([]PluginSpec, 0, n.Size())
+	n.ForEach(func(spec PluginSpec) {
+		intermediate = append(intermediate, spec)
 	})
 	return intermediate
 }
 
-func (n PluginSet) fromIntermediate(plugins []*Plugin) PluginSet {
-	return MakePluginSet(plugins...)
+func (n PluginSpecs) fromIntermediate(specs []PluginSpec) PluginSpecs {
+	return MakePluginSpecs(specs...)
 }
 
 // CodecEncodeSelf implements codec.Selfer
-func (n *PluginSet) CodecEncodeSelf(encoder *codec.Encoder) {
+func (n *PluginSpecs) CodecEncodeSelf(encoder *codec.Encoder) {
 	if n.psMap != nil {
 		encoder.Encode(n.toIntermediate())
 	} else {
@@ -173,37 +180,37 @@ func (n *PluginSet) CodecEncodeSelf(encoder *codec.Encoder) {
 }
 
 // CodecDecodeSelf implements codec.Selfer
-func (n *PluginSet) CodecDecodeSelf(decoder *codec.Decoder) {
-	in := []*Plugin{}
+func (n *PluginSpecs) CodecDecodeSelf(decoder *codec.Decoder) {
+	in := []PluginSpec{}
 	if err := decoder.Decode(&in); err != nil {
 		return
 	}
-	*n = PluginSet{}.fromIntermediate(in)
+	*n = PluginSpecs{}.fromIntermediate(in)
 }
 
 // MarshalJSON shouldn't be used, use CodecEncodeSelf instead
-func (PluginSet) MarshalJSON() ([]byte, error) {
+func (PluginSpecs) MarshalJSON() ([]byte, error) {
 	panic("MarshalJSON shouldn't be used, use CodecEncodeSelf instead")
 }
 
 // UnmarshalJSON shouldn't be used, use CodecDecodeSelf instead
-func (*PluginSet) UnmarshalJSON(b []byte) error {
+func (*PluginSpecs) UnmarshalJSON(b []byte) error {
 	panic("UnmarshalJSON shouldn't be used, use CodecDecodeSelf instead")
 }
 
 // GobEncode implements gob.Marshaller
-func (n PluginSet) GobEncode() ([]byte, error) {
+func (n PluginSpecs) GobEncode() ([]byte, error) {
 	buf := bytes.Buffer{}
 	err := gob.NewEncoder(&buf).Encode(n.toIntermediate())
 	return buf.Bytes(), err
 }
 
 // GobDecode implements gob.Unmarshaller
-func (n *PluginSet) GobDecode(input []byte) error {
-	in := []*Plugin{}
+func (n *PluginSpecs) GobDecode(input []byte) error {
+	in := []PluginSpec{}
 	if err := gob.NewDecoder(bytes.NewBuffer(input)).Decode(&in); err != nil {
 		return err
 	}
-	*n = PluginSet{}.fromIntermediate(in)
+	*n = PluginSpecs{}.fromIntermediate(in)
 	return nil
 }

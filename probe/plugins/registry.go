@@ -18,6 +18,7 @@ import (
 
 	"github.com/weaveworks/scope/common/fs"
 	"github.com/weaveworks/scope/common/fswatch"
+	"github.com/weaveworks/scope/common/xfer"
 )
 
 var (
@@ -188,12 +189,9 @@ func (r *Registry) Close() error {
 }
 
 type Plugin struct {
-	ID          string   `json:"id"`
-	Label       string   `json:"label"`
-	Description string   `json:"description,omitempty"`
-	Interfaces  []string `json:"interfaces"`
-	conn        io.ReadWriteCloser
-	client      *rpc.Client
+	xfer.PluginSpec
+	conn   io.ReadWriteCloser
+	client *rpc.Client
 }
 
 type handshakeResponse struct {
