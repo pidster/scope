@@ -31,6 +31,11 @@ var (
 		ContainerCreated:      {ID: ContainerCreated, Label: "Created", From: report.FromLatest, Priority: 16},
 	}
 
+	ContainerMetricTemplates = report.MetricTemplates{
+		CPUTotalUsage: {ID: CPUTotalUsage, Label: "CPU", Format: report.PercentFormat, Priority: 1},
+		MemoryUsage:   {ID: MemoryUsage, Label: "Memory", Format: report.FilesizeFormat, Priority: 2},
+	}
+
 	ContainerImageMetadataTemplates = report.MetadataTemplates{
 		ImageID:          {ID: ImageID, Label: "Image ID", From: report.FromLatest, Truncate: 12, Priority: 1},
 		report.Container: {ID: report.Container, Label: "# Containers", From: report.FromCounters, Datatype: "number", Priority: 2},
@@ -89,7 +94,9 @@ func (r *Reporter) Report() (report.Report, error) {
 }
 
 func (r *Reporter) containerTopology(localAddrs []net.IP) report.Topology {
-	result := report.MakeTopology().WithMetadataTemplates(ContainerMetadataTemplates)
+	result := report.MakeTopology().
+		WithMetadataTemplates(ContainerMetadataTemplates).
+		WithMetricTemplates(ContainerMetricTemplates)
 	result.Controls.AddControl(report.Control{
 		ID:    StopContainer,
 		Human: "Stop",

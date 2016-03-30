@@ -247,6 +247,7 @@ var (
 				),
 			},
 			MetadataTemplates: process.MetadataTemplates,
+			MetricTemplates:   process.MetricTemplates,
 		},
 		Container: report.Topology{
 			Nodes: report.Nodes{
@@ -289,6 +290,7 @@ var (
 				}),
 			},
 			MetadataTemplates: docker.ContainerMetadataTemplates,
+			MetricTemplates:   docker.ContainerMetricTemplates,
 		},
 		ContainerImage: report.Topology{
 			Nodes: report.Nodes{
@@ -341,6 +343,7 @@ var (
 				}),
 			},
 			MetadataTemplates: host.MetadataTemplates,
+			MetricTemplates:   host.MetricTemplates,
 		},
 		Pod: report.Topology{
 			Nodes: report.Nodes{

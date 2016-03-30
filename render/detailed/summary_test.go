@@ -60,7 +60,7 @@ func TestSummaries(t *testing.T) {
 			t.Fatalf("Expected output to have the node we added the metric to")
 		}
 
-		var row detailed.MetricRow
+		var row report.MetricRow
 		ok = false
 		for _, metric := range node.Metrics {
 			if metric.ID == process.CPUUsage {
@@ -74,10 +74,12 @@ func TestSummaries(t *testing.T) {
 		}
 
 		// Our summarized MetricRow
-		want := detailed.MetricRow{
-			ID:     process.CPUUsage,
-			Format: "percent",
-			Value:  2,
+		want := report.MetricRow{
+			ID:       process.CPUUsage,
+			Label:    "CPU",
+			Format:   "percent",
+			Value:    2,
+			Priority: 1,
 			Metric: &report.Metric{
 				Samples: nil,
 				Min:     metric.Min,
@@ -112,7 +114,6 @@ func TestMakeNodeSummary(t *testing.T) {
 				Metadata: []report.MetadataRow{
 					{ID: process.PID, Label: "PID", Value: fixture.Client1PID, Priority: 1, Datatype: "number"},
 				},
-				Metrics:   []detailed.MetricRow{},
 				Adjacency: report.MakeIDList(fixture.ServerProcessNodeID),
 			},
 		},
@@ -130,7 +131,6 @@ func TestMakeNodeSummary(t *testing.T) {
 				Metadata: []report.MetadataRow{
 					{ID: docker.ContainerID, Label: "ID", Value: fixture.ClientContainerID, Priority: 1},
 				},
-				Metrics:   []detailed.MetricRow{},
 				Adjacency: report.MakeIDList(fixture.ServerContainerNodeID),
 			},
 		},
@@ -167,7 +167,6 @@ func TestMakeNodeSummary(t *testing.T) {
 				Metadata: []report.MetadataRow{
 					{ID: host.HostName, Label: "Hostname", Value: fixture.ClientHostName, Priority: 11},
 				},
-				Metrics:   []detailed.MetricRow{},
 				Adjacency: report.MakeIDList(fixture.ServerHostNodeID),
 			},
 		},

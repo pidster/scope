@@ -78,7 +78,7 @@ type NodeSummary struct {
 	Pseudo       bool                 `json:"pseudo,omitempty"`
 	Metadata     []report.MetadataRow `json:"metadata,omitempty"`
 	DockerLabels []report.MetadataRow `json:"docker_labels,omitempty"`
-	Metrics      []MetricRow          `json:"metrics,omitempty"`
+	Metrics      []report.MetricRow   `json:"metrics,omitempty"`
 	Adjacency    report.IDList        `json:"adjacency,omitempty"`
 }
 
@@ -140,7 +140,7 @@ func baseNodeSummary(r report.Report, n report.Node) NodeSummary {
 		Linkable:     true,
 		Metadata:     NodeMetadata(r, n),
 		DockerLabels: NodeDockerLabels(n),
-		Metrics:      NodeMetrics(n),
+		Metrics:      NodeMetrics(r, n),
 		Adjacency:    n.Adjacency.Copy(),
 	}
 }

@@ -41,6 +41,14 @@ var (
 		OS:            {ID: OS, Label: "OS", From: report.FromLatest, Priority: 12},
 		LocalNetworks: {ID: LocalNetworks, Label: "Local Networks", From: report.FromSets, Priority: 13},
 	}
+
+	MetricTemplates = report.MetricTemplates{
+		CPUUsage:    {ID: CPUUsage, Label: "CPU", Format: report.PercentFormat, Priority: 1},
+		MemoryUsage: {ID: MemoryUsage, Label: "Memory", Format: report.FilesizeFormat, Priority: 2},
+		Load1:       {ID: Load1, Label: "Load (1m)", Format: report.DefaultFormat, Group: "load", Priority: 11},
+		Load5:       {ID: Load5, Label: "Load (5m)", Format: report.DefaultFormat, Group: "load", Priority: 12},
+		Load15:      {ID: Load15, Label: "Load (15m)", Format: report.DefaultFormat, Group: "load", Priority: 13},
+	}
 )
 
 // Reporter generates Reports containing the host topology.
@@ -103,6 +111,7 @@ func (r *Reporter) Report() (report.Report, error) {
 	}
 
 	rep.Host = rep.Host.WithMetadataTemplates(MetadataTemplates)
+	rep.Host = rep.Host.WithMetricTemplates(MetricTemplates)
 
 	now := mtime.Now()
 	metrics := GetLoad(now)

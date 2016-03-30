@@ -47,7 +47,7 @@ type wiredControlInstance struct {
 	Icon    string `json:"icon"`
 }
 
-// CodecEncodeSelf marshals this MetricRow. It takes the basic Metric
+// CodecEncodeSelf marshals this ControlInstance. It takes the basic Metric
 // rendering, then adds some row-specific fields.
 func (c *ControlInstance) CodecEncodeSelf(encoder *codec.Encoder) {
 	encoder.Encode(wiredControlInstance{
