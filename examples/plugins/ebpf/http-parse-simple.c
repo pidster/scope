@@ -73,6 +73,8 @@ int http_filter(struct __sk_buff *skb) {
 	if ((p[0] == 'H') && (p[1] == 'T') && (p[2] == 'T') && (p[3] == 'P')) {
 		goto KEEP;
 	}
+  /*
+   * We're only looking for ^HTTP* at this point to just match responses, not requests.
 	//GET
 	if ((p[0] == 'G') && (p[1] == 'E') && (p[2] == 'T')) {
 		goto KEEP;
@@ -93,6 +95,7 @@ int http_filter(struct __sk_buff *skb) {
 	if ((p[0] == 'H') && (p[1] == 'E') && (p[2] == 'A') && (p[3] == 'D')) {
 		goto KEEP;
 	}
+  */
 
 	//no HTTP match
 	goto DROP;

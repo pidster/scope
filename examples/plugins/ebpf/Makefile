@@ -5,14 +5,14 @@ IMAGE=weavescope-ebpf-plugin
 UPTODATE=.$(EXE).uptodate
 
 run: $(UPTODATE)
-	docker run --rm -it --privileged -v /var/run/scope/plugins:/var/run/scope/plugins --name $(IMAGE) $(IMAGE) -hostname=$(shell hostname)
+	docker run --rm -it --privileged --net=host -v /var/run/scope/plugins:/var/run/scope/plugins --name $(IMAGE) $(IMAGE) -hostname=$(shell hostname)
 
 $(UPTODATE): $(EXE) Dockerfile
 	docker build -t $(IMAGE) .
 	touch $@
 
 $(EXE): main.go
-	docker run --rm -v "$$PWD":/usr/src/$(EXE) -w /usr/src/$(EXE) golang:1.6 go build -v
+	docker run --rm -v "$$PWD":/usr/src/$(EXE) -w /usr/src/$(EXE) golang:1.6 go build -v -o $@ main.go
 
 clean:
 	- rm -rf $(UPTODATE) $(EXE)

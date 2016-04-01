@@ -1,16 +1,17 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
 	"os"
 	"os/exec"
-	"strconv"
-	"strings"
+	"sync"
 	"time"
 )
 
@@ -24,9 +25,16 @@ func main() {
 
 	log.Println("Starting...")
 
-	// Check we have ebpf available
-
-	// Compile and load the ebpf script
+	// Compile and run the ebpf script
+	ebpf := exec.Command("http-parse-simple.py")
+	ebpf.Stderr = os.Stderr
+	stdout, err := ebpf.StdoutPipe()
+	if err != nil {
+		log.Fatal(err)
+	}
+	if err := ebpf.Start(); err != nil {
+		log.Fatal(err)
+	}
 
 	os.Remove(*addr)
 	listener, err := net.Listen("unix", *addr)
@@ -41,15 +49,19 @@ func main() {
 	log.Printf("Listening on: unix://%s", *addr)
 
 	plugin := &Plugin{HostID: *hostID}
+	go plugin.loop(stdout)
 	http.HandleFunc("/", plugin.Handshake)
 	http.HandleFunc("/report", plugin.Report)
 	if err := http.Serve(listener, nil); err != nil {
 		log.Printf("error: %v", err)
 	}
+	ebpf.Wait()
 }
 
 type Plugin struct {
+	sync.Mutex
 	HostID string
+	tuples []tuple
 }
 
 func (p *Plugin) Handshake(w http.ResponseWriter, r *http.Request) {
@@ -68,33 +80,33 @@ func (p *Plugin) Handshake(w http.ResponseWriter, r *http.Request) {
 func (p *Plugin) Report(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	nowISO := now.Format(time.RFC3339)
-	value, err := iowait()
-	if err != nil {
-		log.Printf("error: %v", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+	tuples := p.current()
+	counts := map[string]float64{}
+	for _, t := range tuples {
+		counts[fmt.Sprintf("%s;%d", t.serverIP, t.serverPort)]++
 	}
-	err = json.NewEncoder(w).Encode(map[string]interface{}{
-		"Host": map[string]interface{}{
-			"nodes": map[string]interface{}{
-				p.HostID + ";<host>": map[string]interface{}{
-					"metrics": map[string]interface{}{
-						"iowait": map[string]interface{}{
-							"samples": []interface{}{
-								map[string]interface{}{
-									"date":  nowISO,
-									"value": value,
-								},
-							},
+	nodes := map[string]interface{}{}
+	for id, c := range counts {
+		nodes[id] = map[string]interface{}{
+			"metrics": map[string]interface{}{
+				"http_requests_per_second": map[string]interface{}{
+					"samples": []interface{}{
+						map[string]interface{}{
+							"date":  nowISO,
+							"value": c,
 						},
 					},
 				},
 			},
+		}
+	}
+	err := json.NewEncoder(w).Encode(map[string]interface{}{
+		"Process": map[string]interface{}{
+			"nodes": nodes,
 			"metric_templates": map[string]interface{}{
-				"iowait": map[string]interface{}{
-					"id":       "iowait",
-					"label":    "IO Wait",
-					"format":   "percent",
+				"http_requests_per_second": map[string]interface{}{
+					"id":       "http_requests_per_second",
+					"label":    "HTTP Req/Second",
 					"priority": 0.1, // low number so it shows up first
 				},
 			},
@@ -105,26 +117,55 @@ func (p *Plugin) Report(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// Get the latest iowait value
-func iowait() (float64, error) {
-	out, err := exec.Command("iostat", "-c").Output()
-	if err != nil {
-		return 0, fmt.Errorf("iowait: %v", err)
+// scan tuples from the ebpf plugin
+func (p *Plugin) loop(r io.Reader) {
+	scanner := bufio.NewScanner(r)
+	for scanner.Scan() {
+		var serverIP, clientIP, method string
+		var serverPort, clientPort int
+		_, err := fmt.Sscanf(scanner.Text(), "%s:%d -> %s:%d %s", serverIP, serverPort, clientIP, clientPort, method)
+		if err != nil {
+			log.Fatal(err)
+		}
+		p.Lock()
+		t := tuple{
+			timestamp:  time.Now(),
+			serverIP:   serverIP,
+			serverPort: serverPort,
+			clientIP:   clientIP,
+			clientPort: clientPort,
+		}
+		fmt.Printf("Got Tuple: %+v\n", t)
+		p.tuples = append(p.tuples, t)
+		p.Unlock()
+	}
+	if err := scanner.Err(); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func (p *Plugin) current() []tuple {
+	p.Lock()
+	now := time.Now()
+	expiry := now.Add(-1 * time.Second)
+	// Garbage collect old tuples
+	for i := 0; i < len(p.tuples); i++ {
+		if p.tuples[0].timestamp.After(expiry) {
+			break
+		}
+		p.tuples = p.tuples[1:]
 	}
 
-	// Linux 4.2.0-25-generic (a109563eab38)	04/01/16	_x86_64_(4 CPU)
-	//
-	// avg-cpu:  %user   %nice %system %iowait  %steal   %idle
-	//	          2.37    0.00    1.58    0.01    0.00   96.04
-	lines := strings.Split(string(out), "\n")
-	if len(lines) < 4 {
-		return 0, fmt.Errorf("iowait: unexpected output: %q", out)
-	}
+	result := make([]tuple, len(p.tuples))
+	copy(result, p.tuples)
+	p.Unlock()
+	return result
+}
 
-	values := strings.Fields(lines[3])
-	if len(values) != 6 {
-		return 0, fmt.Errorf("iowait: unexpected output: %q", out)
-	}
-
-	return strconv.ParseFloat(values[3], 64)
+type tuple struct {
+	timestamp  time.Time
+	serverIP   string
+	serverPort int
+	clientIP   string
+	clientPort int
 }
