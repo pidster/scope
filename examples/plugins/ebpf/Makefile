@@ -5,7 +5,13 @@ IMAGE=weavescope-ebpf-plugin
 UPTODATE=.$(EXE).uptodate
 
 run: $(UPTODATE)
-	docker run --rm -it --privileged --net=host -v /var/run/scope/plugins:/var/run/scope/plugins --name $(IMAGE) $(IMAGE) -hostname=$(shell hostname)
+	docker run --rm -it \
+	  --privileged --net=host \
+	  -v /lib/modules:/lib/modules \
+	  -v /usr/src:/usr/src \
+	  -v /var/run/scope/plugins:/var/run/scope/plugins \
+	  --name $(IMAGE) \
+	  $(IMAGE) -hostname=$(shell hostname)
 
 $(UPTODATE): $(EXE) Dockerfile
 	docker build -t $(IMAGE) .

@@ -31,7 +31,7 @@ function_http_filter = bpf.load_func("http_filter", BPF.SOCKET_FILTER)
 #create raw socket, bind it to eth0
 #attach bpf program to socket created
 # TODO: attach this to all interfaces
-BPF.attach_raw_socket(function_http_filter, "eth0")
+BPF.attach_raw_socket(function_http_filter, "eth1")
 
 #get file descriptor of the socket previously created inside BPF.attach_raw_socket
 socket_fd = function_http_filter.sock
@@ -102,20 +102,7 @@ while 1:
   tcp_header_length = tcp_header_length >> 2                              #SHR 4 ; SHL 2 -> SHR 2
 
   # Print the src and destination IPs
-  src_port = str(struct.unpack_from('!H', packet_bytearray, ETH_HLEN + ip_header_length)[0]).ljust(5)
-  dst_port = str(struct.unpack_from('!H', packet_bytearray, ETH_HLEN + ip_header_length + 2)[0]).ljust(5)
-  print("%15s:%s -> %15s:%s  " % (src_ip, src_port, dst_ip, dst_port), end="")
-  
-  #calculate payload offset
-  payload_offset = ETH_HLEN + ip_header_length + tcp_header_length
-  
-  #print first line of the HTTP GET/POST request
-  #line ends with 0xOD 0xOA (\r\n)
-  #(if we want to print all the header print until \r\n\r\n)
-  for i in range (payload_offset-1,len(packet_bytearray)-1):
-    if (packet_bytearray[i]== 0x0A):
-      if (packet_bytearray[i-1] == 0x0D):
-        break
-    print ("%c" % chr(packet_bytearray[i]), end = "")
-  print("")
-
+  src_port = struct.unpack_from('!H', packet_bytearray, ETH_HLEN + ip_header_length)[0]
+  dst_port = struct.unpack_from('!H', packet_bytearray, ETH_HLEN + ip_header_length + 2)[0]
+  print("%s %d %s %d" % (src_ip, src_port, dst_ip, dst_port))
+  sys.stdout.flush()

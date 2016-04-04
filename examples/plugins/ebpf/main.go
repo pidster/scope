@@ -35,6 +35,11 @@ func main() {
 	if err := ebpf.Start(); err != nil {
 		log.Fatal(err)
 	}
+	defer func() {
+		if ebpf.Process != nil {
+			ebpf.Process.Kill()
+		}
+	}()
 
 	os.Remove(*addr)
 	listener, err := net.Listen("unix", *addr)
@@ -83,7 +88,7 @@ func (p *Plugin) Report(w http.ResponseWriter, r *http.Request) {
 	tuples := p.current()
 	counts := map[string]float64{}
 	for _, t := range tuples {
-		counts[fmt.Sprintf("%s;%d", t.serverIP, t.serverPort)]++
+		counts[fmt.Sprintf(";%s;%d", t.serverIP, t.serverPort)]++
 	}
 	nodes := map[string]interface{}{}
 	for id, c := range counts {
@@ -101,8 +106,10 @@ func (p *Plugin) Report(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	err := json.NewEncoder(w).Encode(map[string]interface{}{
-		"Process": map[string]interface{}{
+		"Endpoint": map[string]interface{}{
 			"nodes": nodes,
+		},
+		"Process": map[string]interface{}{
 			"metric_templates": map[string]interface{}{
 				"http_requests_per_second": map[string]interface{}{
 					"id":       "http_requests_per_second",
@@ -121,9 +128,10 @@ func (p *Plugin) Report(w http.ResponseWriter, r *http.Request) {
 func (p *Plugin) loop(r io.Reader) {
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
-		var serverIP, clientIP, method string
+		fmt.Printf("Got line: %s\n", scanner.Text())
+		var serverIP, clientIP string
 		var serverPort, clientPort int
-		_, err := fmt.Sscanf(scanner.Text(), "%s:%d -> %s:%d %s", serverIP, serverPort, clientIP, clientPort, method)
+		_, err := fmt.Sscanf(scanner.Text(), "%s %d %s %d", &serverIP, &serverPort, &clientIP, &clientPort)
 		if err != nil {
 			log.Fatal(err)
 		}
