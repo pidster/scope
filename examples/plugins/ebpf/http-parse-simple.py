@@ -20,6 +20,12 @@ import socket
 import struct
 import sys
 
+if len(sys.argv) != 2:
+  print("usage: %s <iface>" % sys.argv[0])
+  sys.exit(1)
+
+iface = sys.argv[1]
+
 # initialize BPF - load source code from http-parse-simple.c
 bpf = BPF(src_file = "http-parse-simple.c",debug = 0)
 
@@ -28,10 +34,10 @@ bpf = BPF(src_file = "http-parse-simple.c",debug = 0)
 #http://man7.org/linux/man-pages/man2/bpf.2.html
 function_http_filter = bpf.load_func("http_filter", BPF.SOCKET_FILTER)
 
-#create raw socket, bind it to eth0
+#create raw socket, bind it to the interface
 #attach bpf program to socket created
 # TODO: attach this to all interfaces
-BPF.attach_raw_socket(function_http_filter, "eth1")
+BPF.attach_raw_socket(function_http_filter, iface)
 
 #get file descriptor of the socket previously created inside BPF.attach_raw_socket
 socket_fd = function_http_filter.sock

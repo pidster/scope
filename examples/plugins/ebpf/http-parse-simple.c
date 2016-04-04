@@ -14,19 +14,21 @@
   return -1 -> KEEP the packet and return it to user space (userspace can read it from the socket_fd )
 */
 int http_filter(struct __sk_buff *skb) {
+  const int DROP = 0;
+  const int KEEP = -1;
 
 	u8 *cursor = 0;
 
 	struct ethernet_t *ethernet = cursor_advance(cursor, sizeof(*ethernet));
 	//filter IP packets (ethernet type = 0x0800)
 	if (!(ethernet->type == 0x0800)) {
-		goto DROP;	
+		return DROP;	
 	}
 
 	struct ip_t *ip = cursor_advance(cursor, sizeof(*ip));
 	//filter TCP packets (ip next protocol = 0x06)
 	if (ip->nextp != IP_TCP) {
-		goto DROP;
+		return DROP;
 	}
 
 	u32  tcp_header_length = 0;
@@ -55,7 +57,7 @@ int http_filter(struct __sk_buff *skb) {
 	//avoid invalid access memory
 	//include empty payload
 	if(payload_length < 7) {
-		goto DROP;
+		return DROP;
 	}
 
 	//load firt 7 byte of payload into p (payload_array)
@@ -71,41 +73,12 @@ int http_filter(struct __sk_buff *skb) {
 	//find a match with an HTTP message
 	//HTTP
 	if ((p[0] == 'H') && (p[1] == 'T') && (p[2] == 'T') && (p[3] == 'P')) {
-		goto KEEP;
+    return KEEP;
 	}
-  /*
-   * We're only looking for ^HTTP* at this point to just match responses, not requests.
-	//GET
-	if ((p[0] == 'G') && (p[1] == 'E') && (p[2] == 'T')) {
-		goto KEEP;
-	}
-	//POST
-	if ((p[0] == 'P') && (p[1] == 'O') && (p[2] == 'S') && (p[3] == 'T')) {
-		goto KEEP;
-	}
-	//PUT
-	if ((p[0] == 'P') && (p[1] == 'U') && (p[2] == 'T')) {
-		goto KEEP;
-	}
-	//DELETE
-	if ((p[0] == 'D') && (p[1] == 'E') && (p[2] == 'L') && (p[3] == 'E') && (p[4] == 'T') && (p[5] == 'E')) {
-		goto KEEP;
-	}
-	//HEAD
-	if ((p[0] == 'H') && (p[1] == 'E') && (p[2] == 'A') && (p[3] == 'D')) {
-		goto KEEP;
-	}
-  */
+  /* TODO:
+   * Note: This probably won't handle http pipelining, and http2
+   */
 
 	//no HTTP match
-	goto DROP;
-
-	//keep the packet and send it to userspace retruning -1
-	KEEP:
-	return -1;
-
-	//drop the packet returning 0
-	DROP:
-	return 0;
-
+  return DROP;
 }

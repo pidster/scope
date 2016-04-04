@@ -25,21 +25,27 @@ func main() {
 
 	log.Println("Starting...")
 
+	plugin := &Plugin{HostID: *hostID}
+
 	// Compile and run the ebpf script
-	ebpf := exec.Command("http-parse-simple.py")
-	ebpf.Stderr = os.Stderr
-	stdout, err := ebpf.StdoutPipe()
+	ifaces, err := net.Interfaces()
 	if err != nil {
 		log.Fatal(err)
 	}
-	if err := ebpf.Start(); err != nil {
-		log.Fatal(err)
-	}
-	defer func() {
-		if ebpf.Process != nil {
-			ebpf.Process.Kill()
+	for _, iface := range ifaces {
+		log.Println("Attaching to", iface.Name)
+		cmd, stdout, err := startParser(iface.Name)
+		if err != nil {
+			log.Fatal(err)
 		}
-	}()
+		defer func() {
+			if cmd.Process != nil {
+				cmd.Process.Kill()
+			}
+			cmd.Wait()
+		}()
+		go plugin.loop(stdout)
+	}
 
 	os.Remove(*addr)
 	listener, err := net.Listen("unix", *addr)
@@ -53,14 +59,11 @@ func main() {
 
 	log.Printf("Listening on: unix://%s", *addr)
 
-	plugin := &Plugin{HostID: *hostID}
-	go plugin.loop(stdout)
 	http.HandleFunc("/", plugin.Handshake)
 	http.HandleFunc("/report", plugin.Report)
 	if err := http.Serve(listener, nil); err != nil {
 		log.Printf("error: %v", err)
 	}
-	ebpf.Wait()
 }
 
 type Plugin struct {
@@ -124,11 +127,23 @@ func (p *Plugin) Report(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func startParser(iface string) (*exec.Cmd, io.Reader, error) {
+	cmd := exec.Command("http-parse-simple.py", iface)
+	cmd.Stderr = os.Stderr
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, nil, err
+	}
+	return cmd, stdout, nil
+}
+
 // scan tuples from the ebpf plugin
 func (p *Plugin) loop(r io.Reader) {
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
-		fmt.Printf("Got line: %s\n", scanner.Text())
 		var serverIP, clientIP string
 		var serverPort, clientPort int
 		_, err := fmt.Sscanf(scanner.Text(), "%s %d %s %d", &serverIP, &serverPort, &clientIP, &clientPort)
@@ -143,7 +158,6 @@ func (p *Plugin) loop(r io.Reader) {
 			clientIP:   clientIP,
 			clientPort: clientPort,
 		}
-		fmt.Printf("Got Tuple: %+v\n", t)
 		p.tuples = append(p.tuples, t)
 		p.Unlock()
 	}
