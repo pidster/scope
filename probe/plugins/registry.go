@@ -86,10 +86,7 @@ func (r *Registry) addPath(ctx context.Context, path string) error {
 			return nil
 		}
 		for _, file := range files {
-			if err := r.addPath(ctx, filepath.Join(path, file.Name())); err != nil {
-				log.Errorf("plugins: error loading path %s: %v", filepath.Join(path, file.Name()), err)
-				return nil
-			}
+			r.addPath(ctx, filepath.Join(path, file.Name()))
 		}
 	case syscall.S_IFSOCK:
 		if plugin, ok := r.pluginsBySocket[path]; ok {

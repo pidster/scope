@@ -108,11 +108,7 @@ func (w chanWriter) Close() error {
 
 // TODO(paulbellamy): Would be nice to tie the fswatcher and the mock fs
 // together, so adding/deleteing/etc would "just work"
-func setup(t *testing.T, mockPlugins ...mockPlugin) (fs.Entry, *fswatch.MockWatcher) {
-	sockets := []fs.Entry{}
-	for _, p := range mockPlugins {
-		sockets = append(sockets, p.file())
-	}
+func setup(t *testing.T, sockets ...fs.Entry) (fs.Entry, *fswatch.MockWatcher) {
 	mockFS := fs.Dir("", fs.Dir("plugins", sockets...))
 	fs_hook.Mock(
 		mockFS)
@@ -160,7 +156,7 @@ func stringHandler(j string) http.Handler {
 }
 
 func TestRegistryLoadsExistingPlugins(t *testing.T) {
-	setup(t, mockPlugin{t: t, Name: "testPlugin", Handler: stringHandler(`{"name":"testPlugin","interfaces":["reporter"],"api_version":"1"}`)})
+	setup(t, mockPlugin{t: t, Name: "testPlugin", Handler: stringHandler(`{"name":"testPlugin","interfaces":["reporter"],"api_version":"1"}`)}.file())
 	defer restore(t)
 
 	root := "/plugins"
@@ -171,6 +167,27 @@ func TestRegistryLoadsExistingPlugins(t *testing.T) {
 	defer r.Close()
 
 	checkLoadedPlugins(t, r.ForEach, []string{"testPlugin"})
+}
+
+func TestRegistryLoadsExistingPluginsEvenWhenOneFails(t *testing.T) {
+	setup(
+		t,
+		// TODO: This first one needs to fail
+		fs.Dir("fail",
+			mockPlugin{t: t, Name: "aFailure", Handler: stringHandler(`{"name":"aFailure","interfaces":["reporter"],"api_version":"2"}`)}.file(),
+		),
+		mockPlugin{t: t, Name: "testPlugin", Handler: stringHandler(`{"name":"testPlugin","interfaces":["reporter"],"api_version":"1"}`)}.file(),
+	)
+	defer restore(t)
+
+	root := "/plugins"
+	r, err := NewRegistry(root, "1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+
+	checkLoadedPlugins(t, r.ForEach, []string{"", "testPlugin"})
 }
 
 func TestRegistryDiscoversNewPlugins(t *testing.T) {
@@ -207,7 +224,7 @@ func TestRegistryDiscoversNewPlugins(t *testing.T) {
 
 func TestRegistryRemovesPlugins(t *testing.T) {
 	plugin := mockPlugin{t: t, Name: "testPlugin", Requests: make(chan *http.Request), Handler: stringHandler(`{"name":"testPlugin","interfaces":["reporter"]}`)}
-	_, mockWatcher := setup(t, plugin)
+	_, mockWatcher := setup(t, plugin.file())
 	defer restore(t)
 
 	root := "/plugins"
@@ -243,12 +260,12 @@ func TestRegistryReturnsPluginsByInterface(t *testing.T) {
 			t:       t,
 			Name:    "plugin1",
 			Handler: stringHandler(`{"name":"plugin1","interfaces":["reporter"]}`),
-		},
+		}.file(),
 		mockPlugin{
 			t:       t,
 			Name:    "plugin2",
 			Handler: stringHandler(`{"name":"plugin2","interfaces":["other"]}`),
-		},
+		}.file(),
 	)
 	defer restore(t)
 
@@ -271,12 +288,12 @@ func TestRegistryHandlesConflictingPlugins(t *testing.T) {
 			t:       t,
 			Name:    "plugin1",
 			Handler: stringHandler(`{"name":"plugin1","interfaces":["reporter"]}`),
-		},
+		}.file(),
 		mockPlugin{
 			t:       t,
 			Name:    "plugin1",
 			Handler: stringHandler(`{"name":"plugin2","interfaces":["other"]}`),
-		},
+		}.file(),
 	)
 	defer restore(t)
 
