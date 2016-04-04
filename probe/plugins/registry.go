@@ -35,7 +35,7 @@ const (
 
 // Registry maintains a list of available plugins by name.
 type Registry struct {
-	root              string
+	rootPath          string
 	apiVersion        string
 	handshakeMetadata map[string]string
 	pluginsBySocket   map[string]*Plugin
@@ -46,20 +46,20 @@ type Registry struct {
 
 // NewRegistry creates a new registry which watches the given dir root for new
 // plugins, and adds them.
-func NewRegistry(root, apiVersion string, handshakeMetadata map[string]string) (*Registry, error) {
+func NewRegistry(rootPath, apiVersion string, handshakeMetadata map[string]string) (*Registry, error) {
 	watcher, err := fswatch.NewWatcher()
 	if err != nil {
 		return nil, err
 	}
 	r := &Registry{
-		root:              root,
+		rootPath:          rootPath,
 		apiVersion:        apiVersion,
 		handshakeMetadata: handshakeMetadata,
 		pluginsBySocket:   map[string]*Plugin{},
 		watcher:           watcher,
 		done:              make(chan struct{}),
 	}
-	if err := r.addPath(context.Background(), r.root); err != nil {
+	if err := r.addPath(context.Background(), r.rootPath); err != nil {
 		r.Close()
 		return nil, err
 	}

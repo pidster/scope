@@ -68,8 +68,8 @@ func main() {
 
 type Plugin struct {
 	sync.Mutex
-	HostID string
-	tuples []tuple
+	HostID         string
+	requestRecords []requestRecord
 }
 
 func (p *Plugin) Handshake(w http.ResponseWriter, r *http.Request) {
@@ -88,9 +88,9 @@ func (p *Plugin) Handshake(w http.ResponseWriter, r *http.Request) {
 func (p *Plugin) Report(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	nowISO := now.Format(time.RFC3339)
-	tuples := p.current()
+	requestRecords := p.current()
 	counts := map[string]float64{}
-	for _, t := range tuples {
+	for _, t := range requestRecords {
 		counts[fmt.Sprintf(";%s;%d", t.serverIP, t.serverPort)]++
 	}
 	nodes := map[string]interface{}{}
@@ -140,7 +140,7 @@ func startParser(iface string) (*exec.Cmd, io.Reader, error) {
 	return cmd, stdout, nil
 }
 
-// scan tuples from the ebpf plugin
+// scan requestRecords from the ebpf plugin
 func (p *Plugin) loop(r io.Reader) {
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
@@ -151,14 +151,14 @@ func (p *Plugin) loop(r io.Reader) {
 			log.Fatal(err)
 		}
 		p.Lock()
-		t := tuple{
+		t := requestRecord{
 			timestamp:  time.Now(),
 			serverIP:   serverIP,
 			serverPort: serverPort,
 			clientIP:   clientIP,
 			clientPort: clientPort,
 		}
-		p.tuples = append(p.tuples, t)
+		p.requestRecords = append(p.requestRecords, t)
 		p.Unlock()
 	}
 	if err := scanner.Err(); err != nil {
@@ -166,25 +166,25 @@ func (p *Plugin) loop(r io.Reader) {
 	}
 }
 
-func (p *Plugin) current() []tuple {
+func (p *Plugin) current() []requestRecord {
 	p.Lock()
 	now := time.Now()
 	expiry := now.Add(-1 * time.Second)
-	// Garbage collect old tuples
-	for i := 0; i < len(p.tuples); i++ {
-		if p.tuples[0].timestamp.After(expiry) {
+	// Garbage collect old requestRecords
+	for i := 0; i < len(p.requestRecords); i++ {
+		if p.requestRecords[0].timestamp.After(expiry) {
 			break
 		}
-		p.tuples = p.tuples[1:]
+		p.requestRecords = p.requestRecords[1:]
 	}
 
-	result := make([]tuple, len(p.tuples))
-	copy(result, p.tuples)
+	result := make([]requestRecord, len(p.requestRecords))
+	copy(result, p.requestRecords)
 	p.Unlock()
 	return result
 }
 
-type tuple struct {
+type requestRecord struct {
 	timestamp  time.Time
 	serverIP   string
 	serverPort int

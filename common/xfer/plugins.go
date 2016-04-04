@@ -14,10 +14,15 @@ import (
 )
 
 type PluginSpec struct {
-	ID          string   `json:"id"`
-	Label       string   `json:"label"`
-	Description string   `json:"description,omitempty"`
-	Interfaces  []string `json:"interfaces"`
+	ID string `json:"id"`
+
+	// Label is a human-readable name of the plugin
+	Label string `json:"label"`
+
+	Description string `json:"description,omitempty"`
+
+	// Interfaces is a list of things this plugin can be used for (e.g. "reporter")
+	Interfaces []string `json:"interfaces"`
 }
 
 // PluginSpecs is a set of plugin specs keyed on ID. Clients must use
