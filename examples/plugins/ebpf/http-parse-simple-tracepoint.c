@@ -3,7 +3,7 @@ struct __string_t { char s[80]; };
 
 #include <uapi/linux/ptrace.h>
 #include <linux/skbuff.h>
-#include <linux/stddef.h>
+
 
 BPF_HASH(__trace_di, u64, u64);
 
@@ -50,15 +50,19 @@ int perf_trace_skb_copy_datagram_iovec_probe0(struct pt_regs *ctx )
   */
 
   /* Explicit implementation of skb_headlen() */
-  unsigned int head_len = (unsigned int) load_word((void*)skb, offsetof(struct sk_buff, len)) - (unsigned int) load_word((void*)skb, offsetof(struct sk_buff, data_len));
+  unsigned int skb_len = 0;
+  unsigned int skb_data_len = 0;
+  bpf_probe_read(&skb_len, sizeof(skb_len), &skb->len);
+  bpf_probe_read(&skb_data_len, sizeof(skb_data_len), &skb->data_len);
+  unsigned int head_len = skb_len - skb_data_len;
   if (head_len < 7) {
     return 0;
   }
 
-  void *data_addr = (void *) load_word((void*)skb, offsetof(struct sk_buff, data));
-
+  u8 data[4] = {0, 0, 0, 0};
+  bpf_probe_read(&data, sizeof(data), &skb->data);
   /* find a match with an HTTP message */
-  if ((load_byte(data_addr , 0) != 'H') || (load_byte(data_addr , 1) != 'T') || (load_byte(data_addr , 2) != 'T') ||  load_byte(data_addr , 3) != 'P') {
+  if ((data[0] != 'H') || (data[1] != 'T') || (data[2] != 'T') ||  (data[3] != 'P')) {
     return 0;
   }
 
