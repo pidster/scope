@@ -12,14 +12,12 @@ import (
 	"time"
 
 	log "github.com/Sirupsen/logrus"
-	"github.com/fsnotify/fsnotify"
 	"github.com/ugorji/go/codec"
 	"golang.org/x/net/context"
 	"golang.org/x/net/context/ctxhttp"
 
 	"github.com/weaveworks/scope/common/backoff"
 	"github.com/weaveworks/scope/common/fs"
-	"github.com/weaveworks/scope/common/fswatch"
 	"github.com/weaveworks/scope/common/xfer"
 	"github.com/weaveworks/scope/report"
 )
@@ -30,8 +28,9 @@ var (
 )
 
 const (
-	pluginTimeout = 500 * time.Millisecond
-	pluginRetry   = 5 * time.Second
+	pluginTimeout   = 500 * time.Millisecond
+	pluginRetry     = 5 * time.Second
+	pollingInterval = 5 * time.Second
 )
 
 // Registry maintains a list of available plugins by name.
@@ -41,26 +40,23 @@ type Registry struct {
 	handshakeMetadata map[string]string
 	pluginsBySocket   map[string]*Plugin
 	lock              sync.RWMutex
-	watcher           fswatch.Watcher
-	done              chan struct{}
+	context           context.Context
+	cancel            context.CancelFunc
 }
 
 // NewRegistry creates a new registry which watches the given dir root for new
 // plugins, and adds them.
 func NewRegistry(rootPath, apiVersion string, handshakeMetadata map[string]string) (*Registry, error) {
-	watcher, err := fswatch.NewWatcher()
-	if err != nil {
-		return nil, err
-	}
+	ctx, cancel := context.WithCancel(context.Background())
 	r := &Registry{
 		rootPath:          rootPath,
 		apiVersion:        apiVersion,
 		handshakeMetadata: handshakeMetadata,
 		pluginsBySocket:   map[string]*Plugin{},
-		watcher:           watcher,
-		done:              make(chan struct{}),
+		context:           ctx,
+		cancel:            cancel,
 	}
-	if err := r.addPath(context.Background(), r.rootPath); err != nil {
+	if err := r.scan(); err != nil {
 		r.Close()
 		return nil, err
 	}
@@ -68,87 +64,86 @@ func NewRegistry(rootPath, apiVersion string, handshakeMetadata map[string]strin
 	return r, nil
 }
 
-// add recursively crawls the path provided, adding it to the watcher, and
-// looking for any existing sockets, loading them as plugins.
-func (r *Registry) addPath(ctx context.Context, path string) error {
-	// TODO: use of fs.Stat (which is syscall.Stat) here makes this linux specific.
-	var statT syscall.Stat_t
-	if err := fs.Stat(path, &statT); err != nil {
+// loop periodically rescans for plugins
+func (r *Registry) loop() {
+	ticker := time.NewTicker(pollingInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-r.context.Done():
+			return
+		case <-ticker.C:
+			log.Debugf("plugins: scanning...")
+			if err := r.scan(); err != nil {
+				log.Warningf("plugins: error: %v", err)
+			}
+		}
+	}
+}
+
+// Rescan the plugins directory, load new plugins, and remove missing plugins
+func (r *Registry) scan() error {
+	sockets, err := r.sockets(r.rootPath)
+	if err != nil {
 		return err
 	}
-	switch statT.Mode & syscall.S_IFMT {
-	case syscall.S_IFDIR:
-		if err := r.watcher.Add(path); err != nil {
-			return err
-		}
-		files, err := fs.ReadDir(path)
-		if err != nil {
-			log.Errorf("plugins: error loading path %s: %v", path, err)
-			return nil
-		}
-		for _, file := range files {
-			r.addPath(ctx, filepath.Join(path, file.Name()))
-		}
-	case syscall.S_IFSOCK:
-		if err := r.watcher.Add(path); err != nil {
-			return err
-		}
+
+	r.lock.Lock()
+	plugins := map[string]*Plugin{}
+	// add (or keep) plugins which were found
+	for _, path := range sockets {
 		if plugin, ok := r.pluginsBySocket[path]; ok {
-			log.Infof("plugins: plugin already exists %s: conflicting %s", plugin.ID, path)
-			return nil
+			plugins[path] = plugin
+			continue
 		}
 		tr, err := transport(path, pluginTimeout)
 		if err != nil {
-			log.Errorf("plugins: error loading plugin %s: %v", path, err)
-			return nil
+			log.Warningf("plugins: error loading plugin %s: %v", path, err)
+			continue
 		}
 		client := &http.Client{Transport: tr, Timeout: pluginTimeout}
-		r.pluginsBySocket[path] = NewPlugin(ctx, path, client, r.apiVersion, r.handshakeMetadata)
-	default:
-		log.Infof("plugins: unknown filemode %s", path)
+		plugins[path] = NewPlugin(r.context, path, client, r.apiVersion, r.handshakeMetadata)
 	}
+	// remove plugins which weren't found
+	for path, plugin := range r.pluginsBySocket {
+		if _, ok := plugins[path]; !ok {
+			plugin.Close()
+			log.Infof("plugins: removed plugin %s", plugin.socket)
+		}
+	}
+	r.pluginsBySocket = plugins
+	r.lock.Unlock()
 	return nil
 }
 
-func (r *Registry) removePath(ctx context.Context, path string) error {
-	plugin, ok := r.pluginsBySocket[path]
-	if !ok {
-		return nil
+// sockets recursively finds all unix sockets under the path provided
+func (r *Registry) sockets(path string) ([]string, error) {
+	var (
+		result []string
+		statT  syscall.Stat_t
+	)
+	// TODO: use of fs.Stat (which is syscall.Stat) here makes this linux specific.
+	if err := fs.Stat(path, &statT); err != nil {
+		return nil, err
 	}
-	delete(r.pluginsBySocket, path)
-	log.Errorf("plugins: removed plugin %s", plugin.socket)
-	return plugin.Close()
-}
-
-func (r *Registry) loop() {
-	for {
-		select {
-		case <-r.done:
-			return
-		case evt := <-r.watcher.Events():
-			log.Errorf("plugins: event %v", evt)
-			var handler func(context.Context, string) error
-			switch evt.Op {
-			case fsnotify.Create, fsnotify.Chmod:
-				handler = r.addPath
-			case fsnotify.Remove, fsnotify.Rename:
-				handler = r.removePath
-			case fsnotify.Write:
-				continue
-			default:
-				log.Errorf("plugins: event %v: no handler", evt)
-				continue
-			}
-
-			r.lock.Lock()
-			if err := handler(context.Background(), evt.Name); err != nil {
-				log.Errorf("plugins: event %v: error: %v", evt, err)
-			}
-			r.lock.Unlock()
-		case err := <-r.watcher.Errors():
-			log.Errorf("plugins: error: %v", err)
+	switch statT.Mode & syscall.S_IFMT {
+	case syscall.S_IFDIR:
+		files, err := fs.ReadDir(path)
+		if err != nil {
+			return nil, err
 		}
+		for _, file := range files {
+			fpath := filepath.Join(path, file.Name())
+			s, err := r.sockets(fpath)
+			if err != nil {
+				log.Warningf("plugins: error loading path %s: %v", fpath, err)
+			}
+			result = append(result, s...)
+		}
+	case syscall.S_IFSOCK:
+		result = append(result, path)
 	}
+	return result, nil
 }
 
 // ForEach walks through all the plugins running f for each one.
@@ -178,14 +173,13 @@ func (r *Registry) Implementors(iface string, f func(p *Plugin)) {
 
 // Close shuts down the registry. It can still be used after this, but will be
 // out of date.
-func (r *Registry) Close() error {
-	close(r.done)
+func (r *Registry) Close() {
+	r.cancel()
 	r.lock.Lock()
 	defer r.lock.Unlock()
 	for _, plugin := range r.pluginsBySocket {
 		plugin.Close()
 	}
-	return r.watcher.Close()
 }
 
 type Plugin struct {
@@ -207,7 +201,9 @@ func NewPlugin(ctx context.Context, socket string, client *http.Client, expected
 
 	ctx, cancel := context.WithCancel(ctx)
 	p := &Plugin{context: ctx, socket: socket, client: client, cancel: cancel}
-	p.backoff = backoff.New(p.handshake(ctx, expectedAPIVersion, params), "plugin handshake")
+	f := p.handshake(ctx, expectedAPIVersion, params)
+	f() // try the first time synchronously
+	p.backoff = backoff.New(f, "plugin handshake")
 	go p.backoff.Start()
 	return p
 }
@@ -224,7 +220,7 @@ func (p *Plugin) handshake(ctx context.Context, expectedAPIVersion string, param
 	return func() (bool, error) {
 		var resp handshakeResponse
 		if err := p.get("/", params, &resp); err != nil {
-			return false, fmt.Errorf("plugins: error loading plugin %s: %v", p.socket, err)
+			return err == context.Canceled, fmt.Errorf("plugins: error loading plugin %s: %v", p.socket, err)
 		}
 
 		if resp.Name == "" {
@@ -250,7 +246,7 @@ func (p *Plugin) Report() (report.Report, error) {
 
 // TODO(paulbellamy): better error handling on wrong status codes
 func (p *Plugin) get(path string, params url.Values, result interface{}) error {
-	ctx, cancel := context.WithTimeout(context.Background(), pluginTimeout)
+	ctx, cancel := context.WithTimeout(p.context, pluginTimeout)
 	defer cancel()
 	resp, err := ctxhttp.Get(ctx, p.client, fmt.Sprintf("unix://%s?%s", path, params.Encode()))
 	if err != nil {
@@ -261,8 +257,7 @@ func (p *Plugin) get(path string, params url.Values, result interface{}) error {
 }
 
 // Close closes the client
-func (p *Plugin) Close() error {
+func (p *Plugin) Close() {
 	p.backoff.Stop()
 	p.cancel()
-	return nil
 }

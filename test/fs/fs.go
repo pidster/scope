@@ -38,6 +38,7 @@ type Entry interface {
 	os.FileInfo
 	fs.Interface
 	Add(path string, e Entry) error
+	Remove(path string) error
 }
 
 // Dir creates a new directory with the given entries.
@@ -185,6 +186,20 @@ func (p dir) Add(path string, e Entry) error {
 	return fs.Add(tail, e)
 }
 
+func (p dir) Remove(path string) error {
+	if _, ok := p.entries[strings.TrimPrefix(path, "/")]; ok {
+		delete(p.entries, strings.TrimPrefix(path, "/"))
+		return nil
+	}
+
+	head, tail := split(path)
+	fs, ok := p.entries[head]
+	if !ok {
+		return nil
+	}
+	return fs.Remove(tail)
+}
+
 // Name implements os.FileInfo
 func (p File) Name() string { return p.FName }
 
@@ -257,6 +272,14 @@ func (p File) Open(path string) (io.ReadWriteCloser, error) {
 
 // Add adds a new node to the fs
 func (p File) Add(path string, e Entry) error {
+	if path != "/" {
+		return fmt.Errorf("I'm a file!")
+	}
+	return nil
+}
+
+// Add adds a new node to the fs
+func (p File) Remove(path string) error {
 	if path != "/" {
 		return fmt.Errorf("I'm a file!")
 	}

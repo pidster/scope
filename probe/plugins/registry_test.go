@@ -12,13 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fsnotify/fsnotify"
 	"github.com/paypal/ionet"
 
 	fs_hook "github.com/weaveworks/scope/common/fs"
-	fswatch_hook "github.com/weaveworks/scope/common/fswatch"
 	"github.com/weaveworks/scope/test/fs"
-	"github.com/weaveworks/scope/test/fswatch"
 )
 
 func stubTransport(fn func(socket string, timeout time.Duration) (http.RoundTripper, error)) {
@@ -106,9 +103,7 @@ func (w chanWriter) Close() error {
 	return nil
 }
 
-// TODO(paulbellamy): Would be nice to tie the fswatcher and the mock fs
-// together, so adding/deleteing/etc would "just work"
-func setup(t *testing.T, sockets ...fs.Entry) (fs.Entry, *fswatch.MockWatcher) {
+func setup(t *testing.T, sockets ...fs.Entry) fs.Entry {
 	mockFS := fs.Dir("", fs.Dir("plugins", sockets...))
 	fs_hook.Mock(
 		mockFS)
@@ -118,14 +113,11 @@ func setup(t *testing.T, sockets ...fs.Entry) (fs.Entry, *fswatch.MockWatcher) {
 		return readWriteCloseRoundTripper{f}, err
 	})
 
-	mockWatcher := fswatch.NewMockWatcher()
-	fswatch_hook.Mock(mockWatcher)
-	return mockFS, mockWatcher
+	return mockFS
 }
 
 func restore(t *testing.T) {
 	fs_hook.Restore()
-	fswatch_hook.Restore()
 	restoreTransport()
 }
 
@@ -191,7 +183,7 @@ func TestRegistryLoadsExistingPluginsEvenWhenOneFails(t *testing.T) {
 }
 
 func TestRegistryDiscoversNewPlugins(t *testing.T) {
-	mockFS, mockWatcher := setup(t)
+	mockFS := setup(t)
 	defer restore(t)
 
 	root := "/plugins"
@@ -206,25 +198,16 @@ func TestRegistryDiscoversNewPlugins(t *testing.T) {
 	// Add the new plugin
 	plugin := mockPlugin{t: t, Name: "testPlugin", Requests: make(chan *http.Request), Handler: stringHandler(`{"name":"testPlugin","interfaces":["reporter"]}`)}
 	mockFS.Add(plugin.dir(), plugin.file())
-	mockWatcher.Events() <- fsnotify.Event{Name: plugin.path(), Op: fsnotify.Create}
-	select {
-	case <-plugin.Requests:
-		// registry connected to this plugin
-	case <-time.After(100 * time.Millisecond):
-		// timeout
-		t.Errorf("timeout waiting for registry to connect to new plugin")
+	if err := r.scan(); err != nil {
+		t.Fatal(err)
 	}
 
 	checkLoadedPlugins(t, r.ForEach, []string{"testPlugin"})
-
-	if _, ok := mockWatcher.Watched()[plugin.path()]; !ok {
-		t.Errorf("Expected registry to be watching %s, but wasn't", plugin.path())
-	}
 }
 
 func TestRegistryRemovesPlugins(t *testing.T) {
 	plugin := mockPlugin{t: t, Name: "testPlugin", Requests: make(chan *http.Request), Handler: stringHandler(`{"name":"testPlugin","interfaces":["reporter"]}`)}
-	_, mockWatcher := setup(t, plugin.file())
+	mockFS := setup(t, plugin.file())
 	defer restore(t)
 
 	root := "/plugins"
@@ -237,20 +220,12 @@ func TestRegistryRemovesPlugins(t *testing.T) {
 	checkLoadedPlugins(t, r.ForEach, []string{"testPlugin"})
 
 	// Remove the plugin
-	mockWatcher.Events() <- fsnotify.Event{Name: plugin.path(), Op: fsnotify.Remove}
-	select {
-	case <-plugin.Requests:
-		// registry closed connection to this plugin
-	case <-time.After(100 * time.Millisecond):
-		// timeout
-		t.Errorf("timeout waiting for registry to remove plugin")
+	mockFS.Remove(plugin.path())
+	if err := r.scan(); err != nil {
+		t.Fatal(err)
 	}
 
 	checkLoadedPlugins(t, r.ForEach, []string{})
-
-	if _, ok := mockWatcher.Watched()[plugin.path()]; ok {
-		t.Errorf("Expected registry not to be watching %s, but was", plugin.path())
-	}
 }
 
 func TestRegistryReturnsPluginsByInterface(t *testing.T) {
