@@ -97,5 +97,3 @@ func TestProbe(t *testing.T) {
 		return <-pub.have
 	})
 }
-
-func TestProbeMergesReportsFromPlugins(t *testing.T) { t.Error("pending") }
