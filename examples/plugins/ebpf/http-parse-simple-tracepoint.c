@@ -55,6 +55,8 @@ int perf_trace_skb_copy_datagram_iovec_probe0(struct pt_regs *ctx )
   bpf_probe_read(&skb_len, sizeof(skb_len), &skb->len);
   bpf_probe_read(&skb_data_len, sizeof(skb_data_len), &skb->data_len);
   unsigned int head_len = skb_len - skb_data_len;
+  /* Print debug info (made available at /sys/kernel/debug/tracing/trace) */
+  bpf_trace_printk("Head_len  %u\n", head_len);
   if (head_len < 7) {
     return 0;
   }
@@ -62,6 +64,9 @@ int perf_trace_skb_copy_datagram_iovec_probe0(struct pt_regs *ctx )
   u8 data[4] = {0, 0, 0, 0};
   bpf_probe_read(&data, sizeof(data), &skb->data);
   /* find a match with an HTTP message */
+  bpf_trace_printk("Data1 %x %x\n", data[0], data[1]);
+  bpf_trace_printk("Data2 %x %x\n", data[2], data[3]);
+
   if ((data[0] != 'H') || (data[1] != 'T') || (data[2] != 'T') ||  (data[3] != 'P')) {
     return 0;
   }
