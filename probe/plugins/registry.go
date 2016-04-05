@@ -17,6 +17,7 @@ import (
 	"golang.org/x/net/context"
 	"golang.org/x/net/context/ctxhttp"
 
+	"github.com/weaveworks/scope/common/backoff"
 	"github.com/weaveworks/scope/common/fs"
 	"github.com/weaveworks/scope/common/fswatch"
 	"github.com/weaveworks/scope/common/xfer"
@@ -70,16 +71,16 @@ func NewRegistry(rootPath, apiVersion string, handshakeMetadata map[string]strin
 // add recursively crawls the path provided, adding it to the watcher, and
 // looking for any existing sockets, loading them as plugins.
 func (r *Registry) addPath(ctx context.Context, path string) error {
+	// TODO: use of fs.Stat (which is syscall.Stat) here makes this linux specific.
 	var statT syscall.Stat_t
 	if err := fs.Stat(path, &statT); err != nil {
 		return err
 	}
-	if err := r.watcher.Add(path); err != nil {
-		return err
-	}
-	// TODO: use of fs.Stat (which is syscall.Stat) here makes this linux specific.
 	switch statT.Mode & syscall.S_IFMT {
 	case syscall.S_IFDIR:
+		if err := r.watcher.Add(path); err != nil {
+			return err
+		}
 		files, err := fs.ReadDir(path)
 		if err != nil {
 			log.Errorf("plugins: error loading path %s: %v", path, err)
@@ -89,6 +90,9 @@ func (r *Registry) addPath(ctx context.Context, path string) error {
 			r.addPath(ctx, filepath.Join(path, file.Name()))
 		}
 	case syscall.S_IFSOCK:
+		if err := r.watcher.Add(path); err != nil {
+			return err
+		}
 		if plugin, ok := r.pluginsBySocket[path]; ok {
 			log.Infof("plugins: plugin already exists %s: conflicting %s", plugin.ID, path)
 			return nil
@@ -107,12 +111,13 @@ func (r *Registry) addPath(ctx context.Context, path string) error {
 }
 
 func (r *Registry) removePath(ctx context.Context, path string) error {
-	r.watcher.Remove(path)
-	if plugin, ok := r.pluginsBySocket[path]; ok {
-		delete(r.pluginsBySocket, path)
-		return plugin.Close()
+	plugin, ok := r.pluginsBySocket[path]
+	if !ok {
+		return nil
 	}
-	return nil
+	delete(r.pluginsBySocket, path)
+	log.Errorf("plugins: removed plugin %s", plugin.socket)
+	return plugin.Close()
 }
 
 func (r *Registry) loop() {
@@ -121,20 +126,25 @@ func (r *Registry) loop() {
 		case <-r.done:
 			return
 		case evt := <-r.watcher.Events():
-			handlers := map[fsnotify.Op]func(context.Context, string) error{
-				fsnotify.Create: r.addPath,
-				fsnotify.Remove: r.removePath,
-				fsnotify.Chmod:  r.addPath,
-			}
-			if handler, ok := handlers[evt.Op]; ok {
-				r.lock.Lock()
-				if err := handler(context.Background(), evt.Name); err != nil {
-					log.Errorf("plugins: event %v: error: %v", evt, err)
-				}
-				r.lock.Unlock()
-			} else {
+			log.Errorf("plugins: event %v", evt)
+			var handler func(context.Context, string) error
+			switch evt.Op {
+			case fsnotify.Create, fsnotify.Chmod:
+				handler = r.addPath
+			case fsnotify.Remove, fsnotify.Rename:
+				handler = r.removePath
+			case fsnotify.Write:
+				continue
+			default:
 				log.Errorf("plugins: event %v: no handler", evt)
+				continue
 			}
+
+			r.lock.Lock()
+			if err := handler(context.Background(), evt.Name); err != nil {
+				log.Errorf("plugins: event %v: error: %v", evt, err)
+			}
+			r.lock.Unlock()
 		case err := <-r.watcher.Errors():
 			log.Errorf("plugins: error: %v", err)
 		}
@@ -183,7 +193,8 @@ type Plugin struct {
 	context context.Context
 	socket  string
 	client  *http.Client
-	quit    chan struct{}
+	cancel  context.CancelFunc
+	backoff backoff.Interface
 }
 
 // NewPlugin loads and initializes a new plugin. If client is nil,
@@ -194,8 +205,10 @@ func NewPlugin(ctx context.Context, socket string, client *http.Client, expected
 		params.Add(k, v)
 	}
 
-	p := &Plugin{context: ctx, socket: socket, client: client, quit: make(chan struct{})}
-	p.handshake(ctx, expectedAPIVersion, params, 0)
+	ctx, cancel := context.WithCancel(ctx)
+	p := &Plugin{context: ctx, socket: socket, client: client, cancel: cancel}
+	p.backoff = backoff.New(p.handshake(ctx, expectedAPIVersion, params), "plugin handshake")
+	go p.backoff.Start()
 	return p
 }
 
@@ -206,39 +219,26 @@ type handshakeResponse struct {
 	APIVersion  string   `json:"api_version,omitempty"`
 }
 
-// handshake periodically retries the handshake with this plugin until it succeeds.
-func (p *Plugin) handshake(ctx context.Context, expectedAPIVersion string, params url.Values, delay time.Duration) {
-	select {
-	case <-p.quit:
-		return
-	case <-time.After(delay):
-		// noop
-	}
-	if err := p.tryHandshake(ctx, expectedAPIVersion, params); err != nil {
-		log.Errorf("plugins: error loading plugin %s: %v", p.socket, err)
-		go p.handshake(ctx, expectedAPIVersion, params, pluginRetry)
-		return
-	}
-	log.Infof("plugins: loaded plugin %s: %s", p.ID, strings.Join(p.Interfaces, ", "))
-}
+// handshake tries the handshake with this plugin.
+func (p *Plugin) handshake(ctx context.Context, expectedAPIVersion string, params url.Values) func() (bool, error) {
+	return func() (bool, error) {
+		var resp handshakeResponse
+		if err := p.get("/", params, &resp); err != nil {
+			return false, fmt.Errorf("plugins: error loading plugin %s: %v", p.socket, err)
+		}
 
-// helper function to try a handshake once
-func (p *Plugin) tryHandshake(ctx context.Context, expectedAPIVersion string, params url.Values) error {
-	var resp handshakeResponse
-	if err := p.get("/", params, &resp); err != nil {
-		return err
+		if resp.Name == "" {
+			return false, fmt.Errorf("plugins: error loading plugin %s: plugin did not provide a name", p.socket)
+		}
+		if resp.APIVersion != expectedAPIVersion {
+			return false, fmt.Errorf("plugins: error loading plugin %s: plugin did not provide correct API version: expected %q, got %q", p.socket, expectedAPIVersion, resp.APIVersion)
+		}
+		p.ID, p.Label = resp.Name, resp.Name
+		p.Description = resp.Description
+		p.Interfaces = resp.Interfaces
+		log.Infof("plugins: loaded plugin %s: %s", p.ID, strings.Join(p.Interfaces, ", "))
+		return true, nil
 	}
-
-	if resp.Name == "" {
-		return fmt.Errorf("plugin did not provide a name")
-	}
-	if resp.APIVersion != expectedAPIVersion {
-		return fmt.Errorf("plugin did not provide correct API version: expected %q, got %q", expectedAPIVersion, resp.APIVersion)
-	}
-	p.ID, p.Label = resp.Name, resp.Name
-	p.Description = resp.Description
-	p.Interfaces = resp.Interfaces
-	return nil
 }
 
 // Report gets the latest report from the plugin
@@ -262,7 +262,7 @@ func (p *Plugin) get(path string, params url.Values, result interface{}) error {
 
 // Close closes the client
 func (p *Plugin) Close() error {
-	// TODO(paulbellamy): cancel outstanding http requests here
-	close(p.quit)
+	p.backoff.Stop()
+	p.cancel()
 	return nil
 }
