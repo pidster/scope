@@ -5,6 +5,7 @@ import (
 	"sort"
 )
 
+// MetricTemplate extracts a metric row from a node
 type MetricTemplate struct {
 	ID       string  `json:"id"`
 	Label    string  `json:"label,omitempty"`
@@ -38,8 +39,10 @@ func (t MetricTemplate) Copy() MetricTemplate {
 	return t
 }
 
+// MetricTemplates is a mergeable set of metric templates
 type MetricTemplates map[string]MetricTemplate
 
+// MetricRows returns the rows for a node
 func (e MetricTemplates) MetricRows(n Node) []MetricRow {
 	var rows []MetricRow
 	for _, template := range e {

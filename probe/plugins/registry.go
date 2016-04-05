@@ -151,7 +151,7 @@ func (r *Registry) ForEach(f func(p *Plugin)) {
 	r.lock.RLock()
 	defer r.lock.RUnlock()
 	paths := []string{}
-	for path, _ := range r.pluginsBySocket {
+	for path := range r.pluginsBySocket {
 		paths = append(paths, path)
 	}
 	sort.Strings(paths)
@@ -160,8 +160,8 @@ func (r *Registry) ForEach(f func(p *Plugin)) {
 	}
 }
 
-// Implementors walks the available plugins fulfilling the given interface
-func (r *Registry) Implementors(iface string, f func(p *Plugin)) {
+// Implementers walks the available plugins fulfilling the given interface
+func (r *Registry) Implementers(iface string, f func(p *Plugin)) {
 	r.ForEach(func(p *Plugin) {
 		for _, piface := range p.Interfaces {
 			if piface == iface {
@@ -182,6 +182,8 @@ func (r *Registry) Close() {
 	}
 }
 
+// Plugin is the implementation of a plugin. It is responsible for doing the
+// plugin handshake, gathering reports, etc.
 type Plugin struct {
 	xfer.PluginSpec
 	context context.Context

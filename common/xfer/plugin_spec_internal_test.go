@@ -79,19 +79,19 @@ func TestPluginSpecsAdd(t *testing.T) {
 		},
 		{
 			input:   EmptyPluginSpecs,
-			plugins: []PluginSpec{PluginSpec{ID: "a"}},
+			plugins: []PluginSpec{{ID: "a"}},
 			want:    MakePluginSpecs(PluginSpec{ID: "a"}),
 		},
 		{
 			input:   MakePluginSpecs(PluginSpec{ID: "a"}),
-			plugins: []PluginSpec{PluginSpec{ID: "a"}},
+			plugins: []PluginSpec{{ID: "a"}},
 			want:    MakePluginSpecs(PluginSpec{ID: "a"}),
 		},
 		{
 			input: MakePluginSpecs(PluginSpec{ID: "b"}),
 			plugins: []PluginSpec{
-				PluginSpec{ID: "a"},
-				PluginSpec{ID: "b"},
+				{ID: "a"},
+				{ID: "b"},
 			},
 			want: MakePluginSpecs(
 				PluginSpec{ID: "a"},
@@ -101,8 +101,8 @@ func TestPluginSpecsAdd(t *testing.T) {
 		{
 			input: MakePluginSpecs(PluginSpec{ID: "a"}),
 			plugins: []PluginSpec{
-				PluginSpec{ID: "c"},
-				PluginSpec{ID: "b"},
+				{ID: "c"},
+				{ID: "b"},
 			},
 			want: MakePluginSpecs(
 				PluginSpec{ID: "a"},
@@ -116,9 +116,9 @@ func TestPluginSpecsAdd(t *testing.T) {
 				PluginSpec{ID: "c"},
 			),
 			plugins: []PluginSpec{
-				PluginSpec{ID: "b"},
-				PluginSpec{ID: "b"},
-				PluginSpec{ID: "b"},
+				{ID: "b"},
+				{ID: "b"},
+				{ID: "b"},
 			},
 			want: MakePluginSpecs(
 				PluginSpec{ID: "a"},

@@ -4,6 +4,8 @@ import (
 	"github.com/ugorji/go/codec"
 )
 
+// DefaultFormat and friends tell the UI how to render the "Value" of this
+// metric.
 const (
 	DefaultFormat  = ""
 	FilesizeFormat = "filesize"
@@ -108,6 +110,8 @@ func (m *MetricRow) CodecDecodeSelf(decoder *codec.Decoder) {
 	}
 }
 
+// MetricRowsByPriority implements sort.Interface, so we can sort the rows by
+// priority before rendering them to the UI.
 type MetricRowsByPriority []MetricRow
 
 // Len is part of sort.Interface.

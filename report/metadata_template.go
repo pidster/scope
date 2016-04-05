@@ -7,7 +7,12 @@ import (
 )
 
 const (
-	number       = "number"
+	number = "number"
+)
+
+// FromLatest and friends denote the different fields where metadata can be
+// gathered from.
+const (
 	FromLatest   = "latest"
 	FromSets     = "sets"
 	FromCounters = "counters"
@@ -97,8 +102,10 @@ func (m MetadataRow) Copy() MetadataRow {
 	return m
 }
 
+// MetadataTemplates is a mergeable set of metadata templates
 type MetadataTemplates map[string]MetadataTemplate
 
+// MetadataRows returns the rows for a node
 func (e MetadataTemplates) MetadataRows(n Node) []MetadataRow {
 	var rows []MetadataRow
 	for _, template := range e {
@@ -135,6 +142,8 @@ func (e MetadataTemplates) Merge(other MetadataTemplates) MetadataTemplates {
 	return result
 }
 
+// MetadataRowsByPriority implements sort.Interface, so we can sort the rows by
+// priority before rendering them to the UI.
 type MetadataRowsByPriority []MetadataRow
 
 // Len is part of sort.Interface.

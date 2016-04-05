@@ -50,10 +50,14 @@ func main() {
 	}
 }
 
+// Plugin groups the methods a plugin needs
 type Plugin struct {
 	HostID string
 }
 
+// Handshake is the first method that scope calls on this plugin. It is used
+// for the plugin to inform scope about the interfaces it fulfills, and to
+// ensure both scope and the plugin support the same api version.
 func (p *Plugin) Handshake(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Probe %s handshake", r.FormValue("probe_id"))
 	err := json.NewEncoder(w).Encode(map[string]interface{}{
@@ -67,6 +71,8 @@ func (p *Plugin) Handshake(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// Report is called by scope when a new report is needed. It is part of the
+// "reporter" interface, which this plugin implements.
 func (p *Plugin) Report(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	nowISO := now.Format(time.RFC3339)

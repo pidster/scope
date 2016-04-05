@@ -252,8 +252,8 @@ func TestRegistryReturnsPluginsByInterface(t *testing.T) {
 	defer r.Close()
 
 	checkLoadedPlugins(t, r.ForEach, []string{"plugin1", "plugin2"})
-	checkLoadedPlugins(t, func(fn func(*Plugin)) { r.Implementors("reporter", fn) }, []string{"plugin1"})
-	checkLoadedPlugins(t, func(fn func(*Plugin)) { r.Implementors("other", fn) }, []string{"plugin2"})
+	checkLoadedPlugins(t, func(fn func(*Plugin)) { r.Implementers("reporter", fn) }, []string{"plugin1"})
+	checkLoadedPlugins(t, func(fn func(*Plugin)) { r.Implementers("other", fn) }, []string{"plugin2"})
 }
 
 func TestRegistryHandlesConflictingPlugins(t *testing.T) {
@@ -281,5 +281,5 @@ func TestRegistryHandlesConflictingPlugins(t *testing.T) {
 
 	// Should just have the second one (we just log conflicts)
 	checkLoadedPlugins(t, r.ForEach, []string{"plugin2"})
-	checkLoadedPlugins(t, func(fn func(*Plugin)) { r.Implementors("other", fn) }, []string{"plugin2"})
+	checkLoadedPlugins(t, func(fn func(*Plugin)) { r.Implementers("other", fn) }, []string{"plugin2"})
 }

@@ -278,7 +278,7 @@ func (p File) Add(path string, e Entry) error {
 	return nil
 }
 
-// Add adds a new node to the fs
+// Remove removes a node from the fs
 func (p File) Remove(path string) error {
 	if path != "/" {
 		return fmt.Errorf("I'm a file!")

@@ -13,6 +13,8 @@ import (
 	"github.com/weaveworks/scope/test/reflect"
 )
 
+// PluginSpec is shared between the Probe, App, and UI. It is the plugin's
+// self-proclaimed description.
 type PluginSpec struct {
 	ID string `json:"id"`
 
