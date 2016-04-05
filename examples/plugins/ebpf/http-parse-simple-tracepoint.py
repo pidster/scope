@@ -23,4 +23,4 @@ while True:
     data = b.get_table(probe_table_name)
     data = sorted(data.items(), key=lambda kv: kv[1].value)
     for key, value in data:
-        print "\t%-10s %s" % (str(value.value), key.v0)
+        print "\t%-10s %s" % (key.pid ,str(value.value))
