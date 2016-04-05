@@ -13,6 +13,13 @@
   return  0 -> DROP the packet
   return -1 -> KEEP the packet and return it to user space (userspace can read it from the socket_fd )
 */
+
+struct received_http_requests_key_t {
+  u32 pid;
+};
+BPF_HASH(received_http_requests, struct received_http_requests_key_t, u64);
+
+
 int http_filter(struct __sk_buff *skb) {
   const int DROP = 0;
   const int KEEP = -1;
@@ -73,7 +80,11 @@ int http_filter(struct __sk_buff *skb) {
 	//find a match with an HTTP message
 	//HTTP
 	if ((p[0] == 'H') && (p[1] == 'T') && (p[2] == 'T') && (p[3] == 'P')) {
-    return KEEP;
+          
+          /* Record request */
+          struct received_http_requests_key_t __key = {};
+          __key.pid = bpf_get_current_pid_tgid() & 0xFFFF;
+         received_http_requests.increment(__key);
 	}
   /* TODO:
    * Note: This probably won't handle http pipelining, and http2

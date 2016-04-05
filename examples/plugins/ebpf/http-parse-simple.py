@@ -19,6 +19,7 @@ import os
 import socket
 import struct
 import sys
+from time import sleep, strftime
 
 if len(sys.argv) != 2:
   print("usage: %s <iface>" % sys.argv[0])
@@ -47,68 +48,13 @@ sock = socket.fromfd(socket_fd,socket.PF_PACKET,socket.SOCK_RAW,socket.IPPROTO_I
 #set it as blocking socket
 sock.setblocking(True)
 
-while 1:
-  #retrieve raw packet from socket
-  packet_str = os.read(socket_fd,2048)
-
-  #DEBUG - print raw packet in hex format
-  # print ("%s" % packet_str.encode("hex"))
-
-  #convert packet into bytearray
-  packet_bytearray = bytearray(packet_str)
-  
-  #ethernet header length
-  ETH_HLEN = 14 
-
-  #IP HEADER
-  #https://tools.ietf.org/html/rfc791
-  # 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
-  # +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-  # |Version|  IHL  |Type of Service|          Total Length         |
-  # +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-  #
-  #IHL : Internet Header Length is the length of the internet header 
-  #value to multiply * 4 byte
-  #e.g. IHL = 5 ; IP Header Length = 5 * 4 byte = 20 byte
-  #
-  #Total length: This 16-bit field defines the entire packet size, 
-  #including header and data, in bytes.
-
-  #calculate packet total length
-  total_length = packet_bytearray[ETH_HLEN + 2]               #load MSB
-  total_length = total_length << 8                            #shift MSB
-  total_length = total_length + packet_bytearray[ETH_HLEN+3]  #add LSB
-  
-  #calculate ip header length
-  ip_header_length = packet_bytearray[ETH_HLEN]               #load Byte
-  ip_header_length = ip_header_length & 0x0F                  #mask bits 0..3
-  ip_header_length = ip_header_length << 2                    #shift to obtain length
-
-  src_ip = ".".join(map(lambda x: str(int(x)), packet_bytearray[ETH_HLEN + 12 : ETH_HLEN + 16]))
-  dst_ip = ".".join(map(lambda x: str(int(x)), packet_bytearray[ETH_HLEN + 16 : ETH_HLEN + 20]))
-
-  #TCP HEADER 
-  #https://www.rfc-editor.org/rfc/rfc793.txt
-  #  12              13              14              15  
-  #  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 
-  # +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-  # |  Data |           |U|A|P|R|S|F|                               |
-  # | Offset| Reserved  |R|C|S|S|Y|I|            Window             |
-  # |       |           |G|K|H|T|N|N|                               |
-  # +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-  #
-  #Data Offset: This indicates where the data begins.  
-  #The TCP header is an integral number of 32 bits long.
-  #value to multiply * 4 byte
-  #e.g. DataOffset = 5 ; TCP Header Length = 5 * 4 byte = 20 byte
-
-  #calculate tcp header length
-  tcp_header_length = packet_bytearray[ETH_HLEN + ip_header_length + 12]  #load Byte
-  tcp_header_length = tcp_header_length & 0xF0                            #mask bit 4..7
-  tcp_header_length = tcp_header_length >> 2                              #SHR 4 ; SHL 2 -> SHR 2
-
-  # Print the src and destination IPs
-  src_port = struct.unpack_from('!H', packet_bytearray, ETH_HLEN + ip_header_length)[0]
-  dst_port = struct.unpack_from('!H', packet_bytearray, ETH_HLEN + ip_header_length + 2)[0]
-  print("%s %d %s %d" % (src_ip, src_port, dst_ip, dst_port))
-  sys.stdout.flush()
+while True:
+  try:
+    sleep(2)
+  except KeyboardInterrupt:
+    exit()
+  print ("[%s]" % strftime("%H:%M:%S"))
+  data = bpf.get_table("received_http_requests")
+  data = sorted(data.items(), key=lambda kv: kv[1].value)
+  for key, value in data:
+    print ("\t%-10s %s" % (key.pid ,str(value.value)))
