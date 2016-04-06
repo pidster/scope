@@ -62,7 +62,9 @@ int perf_trace_skb_copy_datagram_iovec_probe0(struct pt_regs *ctx )
   }
 
   u8 data[4] = {0, 0, 0, 0};
-  bpf_probe_read(&data, sizeof(data), skb->data);
+  void *datap = 0;
+  bpf_probe_read(&datap, sizeof(datap), &skb->data);
+  bpf_probe_read(&data, sizeof(data), datap);
   /* find a match with an HTTP message */
   bpf_trace_printk("Data1 %x %x\n", data[0], data[1]);
   bpf_trace_printk("Data2 %x %x\n", data[2], data[3]);
