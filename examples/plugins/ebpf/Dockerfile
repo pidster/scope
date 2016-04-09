@@ -8,5 +8,5 @@ RUN echo "deb http://52.8.15.63/apt trusty main" | tee /etc/apt/sources.list.d/i
 RUN apt-get update && apt-get install -y libbcc libbcc-examples python-bcc
 
 # Add our plugin
-ADD ./ebpf ./http-parse-simple.c ./http-parse-simple.py /usr/bin/
+ADD ./ebpf ./http-requests.c ./http-requests.py /usr/bin/
 ENTRYPOINT ["/usr/bin/ebpf"]
