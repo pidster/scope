@@ -28,9 +28,10 @@ class KernelInspector(threading.Thread):
         new_http_rate_per_pid = dict()
         req_count_table = self.bpf.get_table(EBPF_TABLE_NAME)
         for key, value in req_count_table.iteritems():
+            request_delta = value.value
             if key.pid in last_req_count_snapshot:
-                new_http_rate_per_pid[key.pid] = value.value - last_req_count_snapshot[key.pid]
-            else:
+                 request_delta -= last_req_count_snapshot[key.pid]
+            if request_delta > 0:
                 new_http_rate_per_pid[key.pid] = value.value
 
             new_req_count_snapshot[key.pid] = value.value
@@ -68,7 +69,12 @@ class KernelInspector(threading.Thread):
 class PluginRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
     protocol_version = 'HTTP/1.1'
 
+    def __init__(self, *args, **kwargs):
+        BaseHTTPServer.BaseHTTPRequestHandler.__init__(self, *args, **kwargs)
+        self.request_log = ''
+
     def do_GET(self):
+        self.log_extra  = ''
         path = urlparse.urlparse(self.path)[2].lower()
         if path == '/':
             self.do_handshake()
@@ -113,7 +119,9 @@ class PluginRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
                 }
             }
         }
-        self.respond(json.dumps(report))
+        body = json.dumps(report)
+        self.request_log = "resp_size=%d, resp_entry_count=%d" % (len(body), len(process_nodes))
+        self.respond(body)
 
     def do_handshake(self):
         spec = {
@@ -131,8 +139,17 @@ class PluginRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def log_request(self, code='-', size='-'):
+        request_log = ''
+        if self.request_log:
+            request_log = ' (%s)' % self.request_log
+        self.log_message('"%s" %s %s%s',
+                         self.requestline, str(code), str(size), request_log)
 
-class PluginServer(SocketServer.UnixStreamServer):
+
+class PluginServer(SocketServer.ThreadingUnixStreamServer):
+    daemon_threads = True
+
     def __init__(self, socket_file, kernel_inspector):
         if os.path.exists(socket_file):
             os.remove(socket_file)
