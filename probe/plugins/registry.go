@@ -250,7 +250,7 @@ func (p *Plugin) Report() (report.Report, error) {
 func (p *Plugin) get(path string, params url.Values, result interface{}) error {
 	ctx, cancel := context.WithTimeout(p.context, pluginTimeout)
 	defer cancel()
-	resp, err := ctxhttp.Get(ctx, p.client, fmt.Sprintf("unix://%s?%s", path, params.Encode()))
+	resp, err := ctxhttp.Get(ctx, p.client, fmt.Sprintf("http://plugin%s?%s", path, params.Encode()))
 	if err != nil {
 		return err
 	}
