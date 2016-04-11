@@ -34,7 +34,7 @@ class KernelInspector(threading.Thread):
             if key.pid in last_req_count_snapshot:
                  request_delta -= last_req_count_snapshot[key.pid]
             if request_delta > 0:
-                new_http_rate_per_pid[key.pid] = value.value
+                new_http_rate_per_pid[key.pid] = request_delta
 
             new_req_count_snapshot[key.pid] = value.value
 
