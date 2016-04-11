@@ -93,14 +93,14 @@ class PluginRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
         date = date.isoformat('T') + 'Z'
         process_nodes = dict()
         for pid, http_rate in http_rate_per_pid.iteritems():
-            print "\t%-10s %s" % (pid , http_rate)
+            # print "\t%-10s %s" % (pid , http_rate)
             node_key = "%s;%d" % (self.server.hostname, pid)
             process_nodes[node_key] = {
                 'metrics': {
                     'http_requests_per_second': {
                         'samples': [{
                             'date': date,
-                            'value': http_rate,
+                            'value': float(http_rate),
                         }]
                     }
                 }

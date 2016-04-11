@@ -52,7 +52,7 @@ int kprobe__skb_copy_datagram_iter(struct pt_regs *ctx, const struct sk_buff *sk
   if ((data[0] == 'G') && (data[1] == 'E') && (data[2] == 'T')) {
     /* Record request */
     struct received_http_requests_key_t key = {};
-    key.pid = bpf_get_current_pid_tgid();
+    key.pid = bpf_get_current_pid_tgid() >> 32;
     received_http_requests.increment(key);
   }
 
