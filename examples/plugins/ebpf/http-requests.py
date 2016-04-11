@@ -4,6 +4,8 @@ import bcc
 import time
 import datetime
 import os
+import signal
+import errno
 import json
 import urlparse
 import threading
@@ -152,22 +154,44 @@ class PluginServer(SocketServer.ThreadingUnixStreamServer):
     daemon_threads = True
 
     def __init__(self, socket_file, kernel_inspector):
-        if os.path.exists(socket_file):
-            os.remove(socket_file)
-        SocketServer.UnixStreamServer.__init__(self, socket_file, PluginRequestHandler)
+        mkdir_p(os.path.dirname(socket_file))
+        self.socket_file = socket_file
+        self.delete_socket_file()
         self.kernel_inspector = kernel_inspector
         self.hostname = socket.gethostname()
+        SocketServer.UnixStreamServer.__init__(self, socket_file, PluginRequestHandler)
 
     def finish_request(self, request, _):
         # Make the logger happy by providing a phony client_address
         self.RequestHandlerClass(request, '-', self)
 
+    def delete_socket_file(self):
+        if os.path.exists(self.socket_file):
+            os.remove(self.socket_file)
+
+
+def mkdir_p(path):
+    try:
+        os.makedirs(path)
+    except OSError as exc:
+        if exc.errno == errno.EEXIST and os.path.isdir(path):
+            pass
+        else:
+            raise
+
 
 if __name__ == '__main__':
+    kernel_inspector = KernelInspector()
+    kernel_inspector.setDaemon(True)
+    kernel_inspector.start()
+    plugin_server = PluginServer(PLUGIN_UNIX_SOCK, kernel_inspector)
+    def sig_handler(b, a):
+        plugin_server.delete_socket_file()
+        exit(0)
+    signal.signal(signal.SIGTERM, sig_handler)
+    signal.signal(signal.SIGINT, sig_handler)
     try:
-        kernel_inspector = KernelInspector()
-        kernel_inspector.setDaemon(True)
-        kernel_inspector.start()
-        PluginServer(PLUGIN_UNIX_SOCK, kernel_inspector).serve_forever()
-    except KeyboardInterrupt:
-        pass
+        plugin_server.serve_forever()
+    except:
+        plugin_server.delete_socket_file()
+        raise
