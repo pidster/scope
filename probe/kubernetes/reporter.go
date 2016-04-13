@@ -3,6 +3,7 @@ package kubernetes
 import (
 	"k8s.io/kubernetes/pkg/labels"
 
+	"github.com/weaveworks/scope/probe/controls"
 	"github.com/weaveworks/scope/probe/docker"
 	"github.com/weaveworks/scope/report"
 )
@@ -26,14 +27,25 @@ var (
 
 // Reporter generate Reports containing Container and ContainerImage topologies
 type Reporter struct {
-	client Client
+	client  Client
+	pipes   controls.PipeClient
+	probeID string
 }
 
 // NewReporter makes a new Reporter
-func NewReporter(client Client) *Reporter {
-	return &Reporter{
-		client: client,
+func NewReporter(client Client, pipes controls.PipeClient, probeID string) *Reporter {
+	reporter := &Reporter{
+		client:  client,
+		pipes:   pipes,
+		probeID: probeID,
 	}
+	reporter.registerControls()
+	return reporter
+}
+
+// Stop unregisters controls.
+func (r *Reporter) Stop() {
+	r.deregisterControls()
 }
 
 // Name of this reporter, for metrics gathering
@@ -76,6 +88,11 @@ func (r *Reporter) podTopology(services []Service) (report.Topology, report.Topo
 		containers = report.MakeTopology()
 		selectors  = map[string]labels.Selector{}
 	)
+	pods.Controls.AddControl(report.Control{
+		ID:    GetLogs,
+		Human: "Get logs",
+		Icon:  "fa-desktop",
+	})
 	for _, service := range services {
 		selectors[service.ID()] = service.Selector()
 	}
@@ -86,7 +103,7 @@ func (r *Reporter) podTopology(services []Service) (report.Topology, report.Topo
 			}
 		}
 		nodeID := report.MakePodNodeID(p.Namespace(), p.Name())
-		pods = pods.AddNode(nodeID, p.GetNode())
+		pods = pods.AddNode(nodeID, p.GetNode(r.probeID))
 
 		for _, containerID := range p.ContainerIDs() {
 			container := report.MakeNodeWith(map[string]string{
